@@ -1,0 +1,27 @@
+package com.example.VisualizationSystem.model;
+
+import lombok.*;
+import org.springframework.data.neo4j.core.schema.Id;
+import org.springframework.data.neo4j.core.schema.Node;
+
+import java.time.LocalDateTime;
+
+@Node("User")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Getter
+@Setter
+public class User {
+
+    @Id
+    private String userId;
+
+    private String name;
+    private String email;
+    private String phone;
+    private String address;
+    private String paymentMethod;
+    private LocalDateTime createdAt;
+}
