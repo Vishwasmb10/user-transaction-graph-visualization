@@ -1,0 +1,62 @@
+
+package com.example.VisualizationSystem.service;
+
+import com.example.VisualizationSystem.dto.UserRequest;
+import com.example.VisualizationSystem.dto.UserRequest;
+import com.example.VisualizationSystem.dto.UserResponse;
+import com.example.VisualizationSystem.model.User;
+import com.example.VisualizationSystem.repository.GraphRelationshipRepository;
+import com.example.VisualizationSystem.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.neo4j.core.schema.Id;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class UserService {
+
+    private final UserRepository userRepository;
+    private final GraphRelationshipRepository graphRepo;
+
+    public UserResponse createOrUpdate(UserRequest request) {
+
+        User user = User.builder()
+                .userId(request.getUserId())
+                .name(request.getName())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .address(request.getAddress())
+                .paymentMethod(request.getPaymentMethod())
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        User saved = userRepository.upsertUser(
+                request.getUserId(),
+                request.getName(),
+                request.getEmail(),
+                request.getPhone(),
+                request.getAddress(),
+                request.getPaymentMethod()
+        );
+
+        return UserResponse
+                .builder()
+                .name(saved.getName())
+                .email(saved.getEmail())
+                .phone(saved.getPhone())
+                .address(saved.getAddress())
+                .paymentMethod(saved.getPaymentMethod())
+                .createdAt(saved.getCreatedAt())
+                .build();
+    }
+
+    public List<UserResponse> getAll() {
+        return userRepository.findAllUserDtos();
+    }
+}
+
+
