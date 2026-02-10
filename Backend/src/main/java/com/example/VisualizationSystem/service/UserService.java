@@ -5,7 +5,7 @@ import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserResponse;
 import com.example.VisualizationSystem.model.User;
-import com.example.VisualizationSystem.repository.GraphRelationshipRepository;
+import com.example.VisualizationSystem.repository.UserGraphRelationshipRepository;
 import com.example.VisualizationSystem.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.neo4j.core.schema.Id;
@@ -20,7 +20,7 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final GraphRelationshipRepository graphRepo;
+    private final UserGraphRelationshipRepository graphRepo;
 
     public UserResponse createOrUpdate(UserRequest request) {
 
@@ -42,6 +42,24 @@ public class UserService {
                 request.getAddress(),
                 request.getPaymentMethod()
         );
+
+
+        // Relationship detection (shared attributes)
+        if (saved.getEmail() != null) {
+            graphRepo.linkUsersByEmail(saved.getUserId(), saved.getEmail());
+        }
+
+        if (saved.getPhone() != null) {
+            graphRepo.linkUsersByPhone(saved.getUserId(), saved.getPhone());
+        }
+
+        if (saved.getAddress() != null) {
+            graphRepo.linkUsersByAddress(saved.getUserId(), saved.getAddress());
+        }
+
+        if (saved.getPaymentMethod() != null) {
+            graphRepo.linkUsersByPaymentMethod(saved.getUserId(), saved.getPaymentMethod());
+        }
 
         return UserResponse
                 .builder()
