@@ -19,22 +19,35 @@ public class TransactionRelationshipService {
         String query = """
                     MATCH (tx:Transaction {transactionId: $txId})
                 
-                    OPTIONAL MATCH (sender:User)-[:SENT]->(tx)
-                    OPTIONAL MATCH (tx)-[:RECEIVED_BY]->(receiver:User)
+                WITH tx,
+                     [(sender:User)-[:SENT]->(tx) | sender { .userId, .name }] AS senders,
+                     [(tx)-[:RECEIVED_BY]->(receiver:User) | receiver { .userId, .name }] AS receivers
                 
-                    OPTIONAL MATCH (otherIp:Transaction {ip: tx.ip})
-                    WHERE otherIp <> tx
+                // Collect same-IP transactions
+                CALL (tx) {
+                    WITH tx
+                    MATCH (otherIpTx:Transaction)
+                    WHERE otherIpTx.ip = tx.ip AND otherIpTx.transactionId <> tx.transactionId
+                    RETURN collect(otherIpTx { .transactionId, .amount }) AS sameIpTransactions
+                }
                 
-                    OPTIONAL MATCH (otherDevice:Transaction {deviceId: tx.deviceId})
-                    WHERE otherDevice <> tx
+                // Collect same-device transactions
+                CALL (tx) {
+                    WITH tx
+                    MATCH (otherDeviceTx:Transaction)
+                    WHERE otherDeviceTx.deviceId = tx.deviceId AND otherDeviceTx.transactionId <> tx.transactionId
+                    RETURN collect(otherDeviceTx { .transactionId, .amount }) AS sameDeviceTransactions
+                }
                 
-                    RETURN
-                      tx { .transactionId, .amount, .ip, .deviceId } AS transaction,
-                      collect(DISTINCT sender { .userId, .name }) AS senders,
-                      collect(DISTINCT receiver { .userId, .name }) AS receivers,
-                      collect(DISTINCT otherIp { .transactionId, .amount }) AS sameIpTransactions,
-                      collect(DISTINCT otherDevice { .transactionId, .amount }) AS sameDeviceTransactions
+                RETURN
+                  tx { .transactionId, .amount, .ip, .deviceId } AS transaction,
+                  senders,
+                  receivers,
+                  sameIpTransactions,
+                  sameDeviceTransactions
+                
                 """;
+
 
         Map<String, Object> raw = neo4jClient.query(query)
                 .bind(txId).to("txId")
