@@ -15,18 +15,29 @@ public class UserRelationshipService {
     public Map<String, Object> getUserGraph(String userId) {
 
         String query = """
-                    MATCH (u:User {userId: $userId})
+                MATCH (u:User {userId: $userId})
+                WITH u,
+                     [(u)-[r:SAME_EMAIL|SAME_PHONE|SAME_ADDRESS|SAME_PAYMENT_METHOD]-(other:User) |
+                        {
+                          userId: other.userId,
+                          name: other.name,
+                          relType: type(r)
+                        }
+                     ] AS connectedUsers
+                CALL (u) {
+                    WITH u
+                    MATCH (u)-[:SENT]->(tx:Transaction)-[:RECEIVED_BY]->(receiver:User)
+                    RETURN collect(tx { .transactionId, .amount }) AS transactions,
+                           collect(receiver { .userId, .name }) AS receivers
+                }
+                RETURN u { .userId, .name, .email } AS user,
+                       connectedUsers,
+                       transactions,
+                       receivers
                 
-                    OPTIONAL MATCH (u)-[r:SAME_EMAIL|SAME_PHONE|SAME_ADDRESS|SAME_PAYMENT]-(other:User)
                 
-                    OPTIONAL MATCH (u)-[:SENT]->(tx:Transaction)-[:RECEIVED_BY]->(receiver:User)
-                
-                    RETURN
-                      u { .userId, .name, .email } AS user,
-                      collect(DISTINCT other { .userId, .name }) AS connectedUsers,
-                      collect(DISTINCT tx { .transactionId, .amount }) AS transactions,
-                      collect(DISTINCT receiver { .userId, .name }) AS receivers
                 """;
+
 
         Map<String, Object> raw = neo4jClient.query(query)
                 .bind(userId).to("userId")
@@ -80,7 +91,7 @@ public class UserRelationshipService {
             edges.add(Map.of(
                     "source", mainUserId,
                     "target", id,
-                    "type", "SHARED_ATTRIBUTE"
+                    "type", cu.get("relType")
             ));
         }
 
