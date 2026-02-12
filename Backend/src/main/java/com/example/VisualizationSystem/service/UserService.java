@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -24,16 +25,7 @@ public class UserService {
     private final UserGraphRelationshipRepository graphRepo;
 
     public UserResponse createOrUpdate(UserRequest request) {
-
-        User user = User.builder()
-                .userId(request.getUserId())
-                .name(request.getName())
-                .email(request.getEmail())
-                .phone(request.getPhone())
-                .address(request.getAddress())
-                .paymentMethod(request.getPaymentMethod())
-                .createdAt(LocalDateTime.now())
-                .build();
+        User existing = userRepository.findById(request.getUserId()).orElse(null);
 
         User saved = userRepository.upsertUser(
                 request.getUserId(),
@@ -44,22 +36,32 @@ public class UserService {
                 request.getPaymentMethod()
         );
 
-
-        // Relationship detection (shared attributes)
-        if (saved.getEmail() != null) {
-            graphRepo.linkUsersByEmail(saved.getUserId(), saved.getEmail());
+        if (existing == null || !Objects.equals(existing.getEmail(), saved.getEmail())) {
+            graphRepo.deleteSameEmailLinks(saved.getUserId());
+            if (saved.getEmail() != null) {
+                graphRepo.linkUsersByEmail(saved.getUserId(), saved.getEmail());
+            }
         }
 
-        if (saved.getPhone() != null) {
-            graphRepo.linkUsersByPhone(saved.getUserId(), saved.getPhone());
+        if (existing == null || !Objects.equals(existing.getPhone(), saved.getPhone())) {
+            graphRepo.deleteSamePhoneLinks(saved.getUserId());
+            if (saved.getPhone() != null) {
+                graphRepo.linkUsersByPhone(saved.getUserId(), saved.getPhone());
+            }
         }
 
-        if (saved.getAddress() != null) {
-            graphRepo.linkUsersByAddress(saved.getUserId(), saved.getAddress());
+        if (existing == null || !Objects.equals(existing.getAddress(), saved.getAddress())) {
+            graphRepo.deleteSameAddressLinks(saved.getUserId());
+            if (saved.getAddress() != null) {
+                graphRepo.linkUsersByAddress(saved.getUserId(), saved.getAddress());
+            }
         }
 
-        if (saved.getPaymentMethod() != null) {
-            graphRepo.linkUsersByPaymentMethod(saved.getUserId(), saved.getPaymentMethod());
+        if (existing == null || !Objects.equals(existing.getPaymentMethod(), saved.getPaymentMethod())) {
+            graphRepo.deleteSamePaymentLinks(saved.getUserId());
+            if (saved.getPaymentMethod() != null) {
+                graphRepo.linkUsersByPaymentMethod(saved.getUserId(), saved.getPaymentMethod());
+            }
         }
 
         return UserResponse

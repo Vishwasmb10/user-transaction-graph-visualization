@@ -49,5 +49,29 @@ public interface UserGraphRelationshipRepository extends Neo4jRepository<User, S
     void linkUsersByPaymentMethod(@Param("userId") String userId,
                                   @Param("paymentMethod") String paymentMethod);
 
+    @Query("""
+            MATCH (u:User {userId: $userId})-[r:SAME_EMAIL]-()
+            DELETE r
+            """)
+    void deleteSameEmailLinks(String userId);
 
-  }
+    @Query("""
+            MATCH (u:User {userId: $userId})-[r:SAME_PHONE]-()
+            DELETE r
+            """)
+    void deleteSamePhoneLinks(String userId);
+
+    @Query("""
+            MATCH (u:User {userId: $userId})-[r:SAME_ADDRESS]-()
+            DELETE r
+            """)
+    void deleteSameAddressLinks(String userId);
+
+    @Query("""
+            MATCH (u:User {userId: $userId})-[r:SAME_PAYMENT_METHOD]-()
+            DELETE r
+            """)
+    void deleteSamePaymentLinks(String userId);
+
+
+}
