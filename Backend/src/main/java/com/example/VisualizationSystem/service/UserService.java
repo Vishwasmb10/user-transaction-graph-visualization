@@ -1,6 +1,7 @@
 
 package com.example.VisualizationSystem.service;
 
+import com.example.VisualizationSystem.dto.PageResponse;
 import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserResponse;
@@ -75,6 +76,29 @@ public class UserService {
     public List<UserResponse> getAll() {
         return userRepository.findAllUserDtos();
     }
+
+    public PageResponse<User> getUsersPaged(
+            String email,
+            String phone,
+            int page,
+            int size
+    ) {
+        long total = userRepository.countUsers(email, phone);
+
+        long skip = (long) page * size;
+
+        // 🔥 Clamp invalid page
+        if (skip >= total && total > 0) {
+            page = 0;
+            skip = 0;
+        }
+
+        List<User> users = userRepository.findUsersPaged(email, phone, skip, size);
+
+        return new PageResponse<>(users, total, page, size);
+    }
+
+
 }
 
 
