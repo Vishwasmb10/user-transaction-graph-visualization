@@ -54,4 +54,18 @@ public interface TransactionGraphRelationshipRepository extends Neo4jRepository<
             """)
     void linkTransactionsByDevice(@Param("txId") String txId,
                                   @Param("deviceId") String deviceId);
+
+    @Query("""
+            MATCH (t:Transaction {transactionId: $txId})-[r:SAME_IP]-()
+            DELETE r
+            """)
+    void deleteSameIpLinks(String txId);
+
+
+    @Query("""
+            MATCH (t:Transaction {transactionId: $txId})-[r:SAME_DEVICE]-()
+            DELETE r
+            """)
+    void deleteSameDeviceLinks(String txId);
+
 }

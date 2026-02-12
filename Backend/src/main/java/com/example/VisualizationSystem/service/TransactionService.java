@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -19,16 +20,31 @@ public class TransactionService {
     private final TransactionGraphRelationshipRepository graphRelationshipRepository;
 
     public Transaction createOrUpdate(TransactionRequest request) {
-
+        Transaction existing =
+                transactionRepository.findById(request.getTransactionId()).orElse(null);
         var saved = transactionRepository.upsertTransaction(
                 request.getTransactionId(),
                 request.getAmount(),
                 request.getIp(),
                 request.getDeviceId()
         );
+        if (existing == null || !Objects.equals(existing.getIp(), saved.getIp())) {
+            graphRelationshipRepository.deleteSameIpLinks(saved.getTransactionId());
+
+            if (saved.getIp() != null) {
+                graphRelationshipRepository.linkTransactionsByIp(saved.getTransactionId(), saved.getIp());
+            }
+        }
+
+        // SAME_DEVICE
+        if (existing == null || !Objects.equals(existing.getDeviceId(), saved.getDeviceId())) {
+            graphRelationshipRepository.deleteSameDeviceLinks(saved.getTransactionId());
+
+            if (saved.getDeviceId() != null) {
+                graphRelationshipRepository.linkTransactionsByDevice(saved.getTransactionId(), saved.getDeviceId());
+            }
+        }
         graphRelationshipRepository.linkTransactionFlow(request.getSenderId(), request.getReceiverId(), request.getTransactionId());
-        graphRelationshipRepository.linkTransactionsByIp(saved.getTransactionId(), saved.getIp());
-        graphRelationshipRepository.linkTransactionsByDevice(saved.getTransactionId(), saved.getDeviceId());
         return saved;
 
     }
