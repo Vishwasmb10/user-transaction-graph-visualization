@@ -56,6 +56,23 @@
     .pm-chip:hover{background:rgba(236,72,153,.2)!important}
     .pm-chip .del{color:#64748b;font-size:12px;cursor:pointer}
     .pm-chip .del:hover{color:#f87171}
+    /* ── Toasts ── */
+    @keyframes toastIn{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
+    @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(110%)}}
+    .toast-enter{animation:toastIn .25s ease forwards}
+    .toast-exit{animation:toastOut .3s ease forwards}
+    /* ── Pipeline step modal ── */
+    .pipeline-option:hover{border-color:rgba(99,102,241,.5)!important;background:rgba(99,102,241,.12)!important}
+    .pipeline-option.selected{border-color:#6366f1!important;background:rgba(99,102,241,.18)!important}
+    .danger-option:hover{border-color:rgba(239,68,68,.5)!important;background:rgba(239,68,68,.1)!important}
+    .danger-option.selected{border-color:#ef4444!important;background:rgba(239,68,68,.15)!important}
+    /* ── Header action buttons ── */
+    .hdr-btn:hover{opacity:.9!important}
+    /* ── Sortable th ── */
+    .sort-th:hover{color:#c7d2fe!important;background:rgba(99,102,241,.08)!important}
+    /* ── Progress ring ── */
+    @keyframes progressPulse{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,.4)}50%{box-shadow:0 0 0 8px rgba(99,102,241,0)}}
+    .progress-ring{animation:progressPulse 1.4s ease infinite}
   </style>
 </head>
 <body>
@@ -63,7 +80,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
-const API_BASE="http://localhost:8080";
+const API_BASE="http://localhost:8080/api/v1";
 
 const EDGE_COLORS={
   SAME_EMAIL:"#f59e0b",SAME_PHONE:"#10b981",SAME_ADDRESS:"#8b5cf6",
@@ -83,8 +100,245 @@ function fmtTime(ts){if(!ts)return null;try{return new Date(ts).toLocaleString(u
 
 async function apiFetch(path,opts){
   const res=await fetch(`${API_BASE}${path}`,opts);
-  if(!res.ok)throw new Error(`API Error ${res.status}: ${res.statusText}`);
-  return res.json();
+  const ct=res.headers.get("content-type")||"";
+  const isJson=ct.includes("application/json");
+  
+  if(!res.ok){
+    if(isJson){
+      const errData=await res.json();
+      // Handle new error response format
+      const errMsg=errData.message||(errData.validationErrors?Object.values(errData.validationErrors).join(", "):null)||`API Error ${res.status}`;
+      throw new Error(errMsg);
+    }
+    throw new Error(`API Error ${res.status}: ${res.statusText}`);
+  }
+  
+  // Handle successful responses
+  if(isJson){
+    const data=await res.json();
+    // Unwrap ApiResponse format if present
+    if(data.success!==undefined&&data.data!==undefined){
+      return data.data;
+    }
+    return data;
+  }
+  
+  // For 204 No Content or non-JSON responses
+  if(res.status===204)return null;
+  return res.text();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TOAST SYSTEM
+══════════════════════════════════════════════════════════════ */
+let _addToast=null;
+function useToastHost(){
+  const [toasts,setToasts]=useState([]);
+  useEffect(()=>{
+    _addToast=(msg,type="success",dur=4000)=>{
+      const id=Date.now()+Math.random();
+      setToasts(t=>[...t,{id,msg,type,exiting:false}]);
+      setTimeout(()=>{
+        setToasts(t=>t.map(x=>x.id===id?{...x,exiting:true}:x));
+        setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),350);
+      },dur);
+    };
+  },[]);
+  return toasts;
+}
+function toast(msg,type,dur){if(_addToast)_addToast(msg,type,dur);}
+
+function ToastHost({toasts}){
+  if(!toasts.length)return null;
+  const C={success:"#34d399",error:"#f87171",info:"#818cf8",warn:"#fbbf24"};
+  return(
+    <div style={{position:"fixed",bottom:20,right:20,zIndex:9999,display:"flex",flexDirection:"column",gap:8,pointerEvents:"none"}}>
+      {toasts.map(t=>(
+        <div key={t.id} className={t.exiting?"toast-exit":"toast-enter"} style={{
+          display:"flex",alignItems:"flex-start",gap:10,background:"rgba(7,13,26,.97)",
+          border:`1px solid ${C[t.type]||C.success}44`,borderRadius:10,padding:"10px 16px",
+          boxShadow:"0 8px 32px rgba(0,0,0,.5)",backdropFilter:"blur(14px)",
+          maxWidth:340,pointerEvents:"auto",
+        }}>
+          <span style={{color:C[t.type]||C.success,fontSize:14,lineHeight:1.4,flexShrink:0}}>
+            {t.type==="success"?"✓":t.type==="error"?"✕":t.type==="warn"?"⚠":"ℹ"}
+          </span>
+          <span style={{fontSize:12,color:"#c7d2fe",lineHeight:1.5,fontFamily:"'DM Sans',sans-serif"}}>{t.msg}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CONFIRM MODAL (generic)
+══════════════════════════════════════════════════════════════ */
+function ConfirmModal({title,message,confirmLabel="Confirm",danger=false,onConfirm,onClose}){
+  const [loading,setLoading]=useState(false);
+  const go=async()=>{setLoading(true);try{await onConfirm();}finally{setLoading(false);}};
+  return(
+    <Modal title={title} onClose={onClose} width={420}>
+      <div style={{fontSize:13,color:"#94a3b8",lineHeight:1.6,marginBottom:20}}>{message}</div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button className="ghost-btn" onClick={onClose} style={{background:"transparent",border:"1px solid rgba(99,102,241,.25)",borderRadius:7,color:"#818cf8",padding:"9px 20px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+        <button onClick={go} disabled={loading} style={{background:loading?"#334155":danger?"#dc2626":"#4f46e5",border:"none",borderRadius:7,color:"#fff",padding:"9px 22px",fontSize:12,fontWeight:700,cursor:"pointer",transition:"background .15s"}}>
+          {loading?"Working…":confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PIPELINE MODAL — 2-step Insert Data flow
+══════════════════════════════════════════════════════════════ */
+function PipelineModal({hasData,onClose,onDone}){
+  const [step,setStep]=useState(1);             // 1=choose type, 2=handle existing
+  const [chosen,setChosen]=useState(null);      // "full" | "sample"
+  const [deleteFirst,setDeleteFirst]=useState(null); // true | false
+  const [loading,setLoading]=useState(false);
+  const [progress,setProgress]=useState("");
+
+  const OPTS=[
+    {key:"full",label:"Generate Full Dataset",sub:"100k transactions · 10k users · full relations",icon:"⬡",color:"#818cf8",endpoint:"/pipeline/execute"},
+    {key:"sample",label:"Insert Sample Dataset",sub:"Small dataset for quick testing",icon:"◉",color:"#34d399",endpoint:"/pipeline/sample"},
+  ];
+
+  const go=async()=>{
+    if(!chosen)return;
+    const endpoint=OPTS.find(o=>o.key===chosen)?.endpoint;
+    setLoading(true);
+
+    try{
+      if(hasData&&deleteFirst===true){
+        setProgress("Deleting existing data…");
+        await apiFetch("/pipeline",{method:"DELETE"});
+      }
+      setProgress(chosen==="full"?"Generating 100k dataset… (this may take a while)":"Loading sample data…");
+      const result=await apiFetch(endpoint,{method:"POST"});
+      const msg=typeof result==="string"?result:(result?.message||"Dataset inserted successfully");
+      toast(msg,"success",6000);
+      onDone();onClose();
+    }catch(e){
+      toast("Pipeline error: "+e.message,"error",6000);
+    }finally{setLoading(false);setProgress("");}
+  };
+
+  // Step 1: choose dataset type
+  if(step===1)return(
+    <Modal title="Insert Data" onClose={onClose} width={480}>
+      <div style={{fontSize:11,color:"#475569",marginBottom:16}}>Choose the dataset type to insert into the system.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+        {OPTS.map(o=>(
+          <button key={o.key} className={`pipeline-option${chosen===o.key?" selected":""}`} onClick={()=>setChosen(o.key)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",border:`1px solid rgba(255,255,255,.08)`,borderRadius:10,background:"rgba(255,255,255,.03)",cursor:"pointer",textAlign:"left",transition:"all .15s",width:"100%"}}>
+            <span style={{fontSize:22,color:o.color,lineHeight:1}}>{o.icon}</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0",marginBottom:3}}>{o.label}</div>
+              <div style={{fontSize:11,color:"#475569"}}>{o.sub}</div>
+            </div>
+            {chosen===o.key&&<span style={{marginLeft:"auto",color:o.color,fontSize:16}}>✓</span>}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button className="ghost-btn" onClick={onClose} style={{background:"transparent",border:"1px solid rgba(99,102,241,.25)",borderRadius:7,color:"#818cf8",padding:"9px 20px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+        <button onClick={()=>{if(!chosen)return;if(hasData)setStep(2);else go();}} disabled={!chosen} style={{background:!chosen?"#1e293b":"#4f46e5",border:"none",borderRadius:7,color:"#fff",padding:"9px 22px",fontSize:12,fontWeight:700,cursor:chosen?"pointer":"not-allowed",transition:"background .15s"}}>
+          {hasData?"Next →":"Insert Now"}
+        </button>
+      </div>
+    </Modal>
+  );
+
+  // Step 2: handle existing data
+  return(
+    <Modal title="Existing Data Detected" onClose={onClose} width={480}>
+      <div style={{display:"flex",alignItems:"center",gap:12,background:"rgba(251,191,36,.06)",border:"1px solid rgba(251,191,36,.2)",borderRadius:8,padding:"12px 14px",marginBottom:18}}>
+        <span style={{fontSize:20}}>⚠</span>
+        <div style={{fontSize:12,color:"#fde68a",lineHeight:1.5}}>The database already contains data. How would you like to proceed?</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+        <button className={`pipeline-option${deleteFirst===false?" selected":""}`} onClick={()=>setDeleteFirst(false)} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",border:"1px solid rgba(255,255,255,.08)",borderRadius:10,background:"rgba(255,255,255,.03)",cursor:"pointer",textAlign:"left",transition:"all .15s",width:"100%"}}>
+          <span style={{fontSize:18,color:"#34d399"}}>+</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0",marginBottom:2}}>Keep existing data</div>
+            <div style={{fontSize:11,color:"#475569"}}>Insert new dataset alongside current records</div>
+          </div>
+          {deleteFirst===false&&<span style={{marginLeft:"auto",color:"#34d399",fontSize:16}}>✓</span>}
+        </button>
+        <button className={`pipeline-option danger-option${deleteFirst===true?" selected":""}`} onClick={()=>setDeleteFirst(true)} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",border:"1px solid rgba(255,255,255,.08)",borderRadius:10,background:"rgba(255,255,255,.03)",cursor:"pointer",textAlign:"left",transition:"all .15s",width:"100%"}}>
+          <span style={{fontSize:18,color:"#f87171"}}>✕</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0",marginBottom:2}}>Delete existing data first</div>
+            <div style={{fontSize:11,color:"#475569"}}>Wipe all current data, then insert the new dataset</div>
+          </div>
+          {deleteFirst===true&&<span style={{marginLeft:"auto",color:"#f87171",fontSize:16}}>✓</span>}
+        </button>
+      </div>
+      {loading&&<div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(99,102,241,.08)",border:"1px solid rgba(99,102,241,.2)",borderRadius:7,padding:"10px 14px",marginBottom:14}}>
+        <div className="progress-ring" style={{width:18,height:18,borderRadius:"50%",border:"2px solid rgba(99,102,241,.2)",borderTopColor:"#818cf8",animation:"spin .8s linear infinite",flexShrink:0}}/>
+        <span style={{fontSize:12,color:"#818cf8"}}>{progress||"Processing…"}</span>
+      </div>}
+      <div style={{display:"flex",gap:10,justifyContent:"space-between"}}>
+        <button className="ghost-btn" onClick={()=>setStep(1)} style={{background:"transparent",border:"1px solid rgba(99,102,241,.25)",borderRadius:7,color:"#818cf8",padding:"9px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Back</button>
+        <div style={{display:"flex",gap:10}}>
+          <button className="ghost-btn" onClick={onClose} style={{background:"transparent",border:"1px solid rgba(99,102,241,.25)",borderRadius:7,color:"#818cf8",padding:"9px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+          <button onClick={go} disabled={loading||deleteFirst===null} style={{background:loading||deleteFirst===null?"#1e293b":deleteFirst?"#dc2626":"#4f46e5",border:"none",borderRadius:7,color:"#fff",padding:"9px 22px",fontSize:12,fontWeight:700,cursor:loading||deleteFirst===null?"not-allowed":"pointer",transition:"background .15s"}}>
+            {loading?"Working…":deleteFirst?"Delete & Insert":"Insert"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NO-DATA MODAL — shown on first load when DB is empty
+══════════════════════════════════════════════════════════════ */
+function NoDataModal({onClose,onDone}){
+  const [loading,setLoading]=useState(false);const [progress,setProgress]=useState("");
+  const run=async endpoint=>{
+    setLoading(endpoint);
+    setProgress(endpoint==="/pipeline/execute"?"Generating full dataset… (this may take a minute)":"Inserting sample dataset…");
+    try{
+      const result=await apiFetch(endpoint,{method:"POST"});
+      const msg=typeof result==="string"?result:(result?.message||"Dataset ready!");
+      toast(msg,"success",6000);
+      onDone();onClose();
+    }catch(e){toast("Error: "+e.message,"error",6000);}finally{setLoading(false);setProgress("");}
+  };
+  return(
+    <Modal title="Welcome to FRAMLGRAPH" onClose={onClose} width={500}>
+      <div style={{textAlign:"center",padding:"8px 0 20px"}}>
+        <div style={{fontSize:44,marginBottom:12,opacity:.7}}>⬡</div>
+        <div style={{fontSize:14,color:"#94a3b8",lineHeight:1.7,marginBottom:24}}>No data found in the database.<br/>Get started by generating a dataset.</div>
+      </div>
+      {loading&&<div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(99,102,241,.08)",border:"1px solid rgba(99,102,241,.2)",borderRadius:7,padding:"12px 14px",marginBottom:18}}>
+        <div style={{width:18,height:18,borderRadius:"50%",border:"2px solid rgba(99,102,241,.2)",borderTopColor:"#818cf8",animation:"spin .8s linear infinite",flexShrink:0}}/>
+        <span style={{fontSize:12,color:"#818cf8"}}>{progress}</span>
+      </div>}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <button onClick={()=>run("/pipeline/execute")} disabled={!!loading} style={{display:"flex",alignItems:"center",gap:14,padding:"16px 20px",border:"1px solid rgba(99,102,241,.25)",borderRadius:12,background:loading==="/pipeline/execute"?"rgba(99,102,241,.2)":"rgba(99,102,241,.08)",cursor:loading?"not-allowed":"pointer",transition:"all .2s",width:"100%",opacity:loading&&loading!=="/pipeline/execute"?.4:1}}>
+          <span style={{fontSize:24,color:"#818cf8"}}>⬡</span>
+          <div style={{textAlign:"left"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0",marginBottom:3}}>Generate Full Dataset</div>
+            <div style={{fontSize:11,color:"#475569"}}>100k transactions · 10k users · full relationship mapping</div>
+          </div>
+          {loading==="/pipeline/execute"&&<div style={{marginLeft:"auto",width:16,height:16,borderRadius:"50%",border:"2px solid rgba(99,102,241,.2)",borderTopColor:"#818cf8",animation:"spin .8s linear infinite"}}/>}
+        </button>
+        <button onClick={()=>run("/pipeline/sample")} disabled={!!loading} style={{display:"flex",alignItems:"center",gap:14,padding:"16px 20px",border:"1px solid rgba(52,211,153,.2)",borderRadius:12,background:loading==="/pipeline/sample"?"rgba(52,211,153,.15)":"rgba(52,211,153,.06)",cursor:loading?"not-allowed":"pointer",transition:"all .2s",width:"100%",opacity:loading&&loading!=="/pipeline/sample"?.4:1}}>
+          <span style={{fontSize:24,color:"#34d399"}}>◉</span>
+          <div style={{textAlign:"left"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0",marginBottom:3}}>Insert Sample Dataset</div>
+            <div style={{fontSize:11,color:"#475569"}}>Small dataset for testing — loads in seconds</div>
+          </div>
+          {loading==="/pipeline/sample"&&<div style={{marginLeft:"auto",width:16,height:16,borderRadius:"50%",border:"2px solid rgba(52,211,153,.2)",borderTopColor:"#34d399",animation:"spin .8s linear infinite"}}/>}
+        </button>
+      </div>
+      <div style={{marginTop:16,textAlign:"center"}}>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#334155",fontSize:11,cursor:"pointer"}}>Skip for now →</button>
+      </div>
+    </Modal>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -170,7 +424,11 @@ function UserModal({editUser,onClose,onSaved}){
   const submit=async()=>{
     if(!form.userId.trim()||!form.name.trim()){setError("User ID and Name are required.");return;}
     setLoading(true);setError(null);
-    try{await apiFetch("/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});onSaved();onClose();}
+    try{
+      const payload={id:form.userId,...form};
+      await apiFetch("/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      onSaved();onClose();
+    }
     catch(e){setError(e.message);}finally{setLoading(false);}
   };
   return(
@@ -220,7 +478,11 @@ function TransactionModal({editTx,onClose,onSaved}){
     if(!form.transactionId.trim()){setError("Transaction ID is required.");return;}
     if(!form.senderId.trim()||!form.receiverId.trim()){setError("Sender and Receiver IDs are required.");return;}
     setLoading(true);setError(null);
-    try{await apiFetch("/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...form,amount:form.amount?Number(form.amount):null})});onSaved();onClose();}
+    try{
+      const payload={id:form.transactionId,...form,amount:form.amount?Number(form.amount):null};
+      await apiFetch("/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      onSaved();onClose();
+    }
     catch(e){setError(e.message);}finally{setLoading(false);}
   };
   return(
@@ -616,23 +878,20 @@ function UsersTab({onSelectUser,selectedUserId,onAdd,onEdit}){
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   TRANSACTIONS TAB
-══════════════════════════════════════════════════════════════ */
-function TransactionsTab({onSelectTx,selectedTxId,onAdd,onEdit}){
+function TransactionsTab({onSelectTx,selectedTxId,onAdd,onEdit,refreshKey}){
   const [txs,setTxs]=useState([]);const [total,setTotal]=useState(0);const [page,setPage]=useState(0);const SIZE=50;
   const [search,setSearch]=useState("");const [ip,setIp]=useState("");const [deviceId,setDeviceId]=useState("");
   const [minAmt,setMinAmt]=useState("");const [maxAmt,setMaxAmt]=useState("");
   const [status,setStatus]=useState("");const [pmFilter,setPmFilter]=useState("");
-  const [sortKey,setSortKey]=useState("amount");const [sortDir,setSortDir]=useState("desc");
+  const [sortKey,setSortKey]=useState("timestamp");const [sortDir,setSortDir]=useState("desc");
   const [loading,setLoading]=useState(false);const [error,setError]=useState(null);
 
   const getF=()=>({search,ip,deviceId,minAmount:minAmt,maxAmount:maxAmt,status,paymentMethod:pmFilter});
 
-  const fetch_=useCallback(async(p,f)=>{
+  const fetch_=useCallback(async(p,f,sk,sd)=>{
     setLoading(true);setError(null);
     try{
-      const q=new URLSearchParams({page:p,size:SIZE});
+      const q=new URLSearchParams({page:p,size:SIZE,sortBy:sk||"timestamp",sortDir:sd||"desc"});
       if(f.search)        q.set("search",f.search);
       if(f.ip)            q.set("ip",f.ip);
       if(f.deviceId)      q.set("deviceId",f.deviceId);
@@ -646,14 +905,31 @@ function TransactionsTab({onSelectTx,selectedTxId,onAdd,onEdit}){
     }catch(e){setError(e.message);}finally{setLoading(false);}
   },[]);
 
-  useEffect(()=>{fetch_(0,{});},[fetch_]);
-  const apply=()=>{setPage(0);fetch_(0,getF());};
-  const clear=()=>{setSearch("");setIp("");setDeviceId("");setMinAmt("");setMaxAmt("");setStatus("");setPmFilter("");setPage(0);fetch_(0,{});};
-  const goPage=p=>{setPage(p);fetch_(p,getF());};
+  useEffect(()=>{fetch_(0,{},sortKey,sortDir);},[fetch_]);
+  // Refresh when refreshKey changes
+  useEffect(()=>{if(refreshKey>0)fetch_(0,getF(),sortKey,sortDir);},[refreshKey]);
 
-  const sorted=useMemo(()=>[...txs].sort((a,b)=>{const av=a[sortKey],bv=b[sortKey];if(typeof av==="number")return sortDir==="asc"?av-bv:bv-av;return sortDir==="asc"?String(av).localeCompare(String(bv)):String(bv).localeCompare(String(av));}),[txs,sortKey,sortDir]);
-  const toggleSort=k=>{if(sortKey===k)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortKey(k);setSortDir("desc");}};
+  const apply=()=>{setPage(0);fetch_(0,getF(),sortKey,sortDir);};
+  const clear=()=>{setSearch("");setIp("");setDeviceId("");setMinAmt("");setMaxAmt("");setStatus("");setPmFilter("");setPage(0);fetch_(0,{},sortKey,sortDir);};
+  const goPage=p=>{setPage(p);fetch_(p,getF(),sortKey,sortDir);};
+  const toggleSort=k=>{
+    const nd=sortKey===k&&sortDir==="asc"?"desc":"asc";
+    if(sortKey!==k){setSortKey(k);setSortDir("desc");fetch_(0,getF(),k,"desc");}
+    else{setSortDir(nd);fetch_(0,getF(),k,nd);}
+    setPage(0);
+  };
   const SI=({k})=><span style={{fontSize:9,color:sortKey===k?"#818cf8":"#1e293b",marginLeft:2}}>{sortKey!==k?"↕":sortDir==="asc"?"↑":"↓"}</span>;
+
+  const SORT_HEADERS=[
+    {key:"transactionId",label:"Transaction ID",sortable:false},
+    {key:"amount",label:"Amount",sortable:true},
+    {key:"paymentMethod",label:"Payment",sortable:true},
+    {key:"status",label:"Status",sortable:true},
+    {key:"timestamp",label:"Timestamp",sortable:true},
+    {key:"ip",label:"IP",sortable:true},
+    {key:"deviceId",label:"Device",sortable:false},
+    {key:"_edit",label:"",sortable:false},
+  ];
 
   return(
     <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
@@ -676,22 +952,24 @@ function TransactionsTab({onSelectTx,selectedTxId,onAdd,onEdit}){
       <div style={{flex:1,overflow:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr>
-            <th style={S.th}>Transaction ID</th>
-            <th style={{...S.th,cursor:"pointer"}} onClick={()=>toggleSort("amount")}>Amount <SI k="amount"/></th>
-            <th style={S.th}>Payment</th><th style={S.th}>Status</th>
-            <th style={{...S.th,cursor:"pointer"}} onClick={()=>toggleSort("ip")}>IP <SI k="ip"/></th>
-            <th style={S.th}>Device</th><th style={S.th}></th>
+            {SORT_HEADERS.map(h=>(
+              <th key={h.key} className={h.sortable?"sort-th":""} style={{...S.th,cursor:h.sortable?"pointer":"default",userSelect:"none",transition:"color .15s,background .15s"}}
+                onClick={h.sortable?()=>toggleSort(h.key):undefined}>
+                {h.label}{h.sortable&&<SI k={h.key}/>}
+              </th>
+            ))}
           </tr></thead>
           <tbody>
-            {loading?Array.from({length:10}).map((_,i)=><tr key={i}><td colSpan={7} style={S.td}><div style={S.skel}/></td></tr>)
-              :sorted.map(tx=>{const sc=STATUS_COLORS[(tx.status||"").toUpperCase()]||"#64748b";return(
+            {loading?Array.from({length:10}).map((_,i)=><tr key={i}><td colSpan={8} style={S.td}><div style={S.skel}/></td></tr>)
+              :txs.map(tx=>{const sc=STATUS_COLORS[(tx.status||"").toUpperCase()]||"#64748b";return(
                 <tr key={tx.transactionId} className={`data-row ${selectedTxId===tx.transactionId?"selected":""}`} style={{borderBottom:"1px solid rgba(255,255,255,.04)",cursor:"pointer"}} onClick={()=>onSelectTx(tx)}>
                   <td style={{...S.td,...S.mono}}>{tx.transactionId}</td>
                   <td style={{...S.td,color:"#34d399",fontFamily:"'DM Mono',monospace",fontWeight:600}}>{CURRENCY_SYMS[tx.currency]||"$"}{Number(tx.amount||0).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
                   <td style={{...S.td,color:"#ec4899",fontSize:10}}>{tx.paymentMethod||"—"}</td>
                   <td style={S.td}>{tx.status?<span style={{background:`${sc}18`,border:`1px solid ${sc}44`,color:sc,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:600}}>{tx.status}</span>:<span style={{color:"#1e293b",fontSize:10}}>—</span>}</td>
-                  <td style={{...S.td,...S.mono}}>{tx.ip}</td>
-                  <td style={{...S.td,...S.mono,maxWidth:95}}>{tx.deviceId}</td>
+                  <td style={{...S.td,...S.mono,fontSize:9,color:"#334155"}}>{tx.timestamp?fmtTime(tx.timestamp):"—"}</td>
+                  <td style={{...S.td,...S.mono}}>{tx.ip||"—"}</td>
+                  <td style={{...S.td,...S.mono,maxWidth:95}}>{tx.deviceId||"—"}</td>
                   <td style={S.td} onClick={e=>e.stopPropagation()}><button onClick={()=>onEdit(tx)} style={{background:"rgba(124,58,237,.1)",border:"1px solid rgba(124,58,237,.2)",borderRadius:4,color:"#a78bfa",padding:"2px 8px",fontSize:10,cursor:"pointer"}}>Edit</button></td>
                 </tr>
               );})}
@@ -721,6 +999,7 @@ function Pagination({page,totalPages,onPage}){
    APP
 ══════════════════════════════════════════════════════════════ */
 function App(){
+  const toasts=useToastHost();
   const [screen,setScreen]=useState("landing");
   const [tab,setTab]=useState("users");
   const [selUser,setSelUser]=useState(null);const [selTx,setSelTx]=useState(null);
@@ -728,18 +1007,46 @@ function App(){
   const [graphError,setGraphError]=useState(null);const [graphTitle,setGraphTitle]=useState("");
   const [userModal,setUserModal]=useState(null);const [txModal,setTxModal]=useState(null);
   const [userRefresh,setUserRefresh]=useState(0);const [txRefresh,setTxRefresh]=useState(0);
+  // Pipeline modals
+  const [showPipeline,setShowPipeline]=useState(false);
+  const [showNoData,setShowNoData]=useState(false);
+  const [showDeleteConfirm,setShowDeleteConfirm]=useState(false);
+  const [hasData,setHasData]=useState(false);
+  // Global refresh key
+  const [globalRefresh,setGlobalRefresh]=useState(0);
+
+  // Check if data exists on dashboard load
+  const checkData=useCallback(async()=>{
+    try{
+      const d=await apiFetch("/transactions?page=0&size=1");
+      const n=(d.total??d.totalElements??0);
+      setHasData(n>0);
+      if(n===0)setShowNoData(true);
+    }catch{setHasData(false);}
+  },[]);
+
+  useEffect(()=>{if(screen==="dashboard")checkData();},[screen,checkData]);
+
+  const refreshAll=()=>{setUserRefresh(r=>r+1);setTxRefresh(r=>r+1);setGlobalRefresh(r=>r+1);setHasData(true);};
+
+  const handleDelete=async()=>{
+    await apiFetch("/pipeline",{method:"DELETE"});
+    toast("All data deleted successfully","success");
+    setHasData(false);setGlobalRefresh(r=>r+1);setUserRefresh(r=>r+1);setTxRefresh(r=>r+1);
+    setGraphData(null);setSelUser(null);setSelTx(null);
+  };
 
   const loadUserGraph=useCallback(async user=>{
     setSelUser(user);setSelTx(null);setGraphLoading(true);setGraphError(null);
     setGraphTitle(`User: ${user.name||user.userId}`);
-    try{const d=await apiFetch(`/relationships/user/${user.userId}`);setGraphData(d);}
+    try{const d=await apiFetch(`/relationships/users/${user.userId}`);setGraphData(d);}
     catch(e){setGraphError(e.message);}finally{setGraphLoading(false);}
   },[]);
 
   const loadTxGraph=useCallback(async tx=>{
     setSelTx(tx);setSelUser(null);setGraphLoading(true);setGraphError(null);
     setGraphTitle(`Transaction: ${tx.transactionId}`);
-    try{const d=await apiFetch(`/relationships/transaction/${tx.transactionId}`);setGraphData(d);}
+    try{const d=await apiFetch(`/relationships/transactions/${tx.transactionId}`);setGraphData(d);}
     catch(e){setGraphError(e.message);}finally{setGraphLoading(false);}
   },[]);
 
@@ -757,19 +1064,41 @@ function App(){
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",width:"100vw",background:"#060c1a",color:"#e2e8f0",fontFamily:"'DM Sans',sans-serif",overflow:"hidden"}}>
-      <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",height:52,background:"rgba(7,13,26,.99)",borderBottom:"1px solid rgba(99,102,241,.15)",flexShrink:0,zIndex:30}}>
-        <div style={{display:"flex",alignItems:"center",gap:18}}>
+      {/* ── Header ── */}
+      <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px",height:52,background:"rgba(7,13,26,.99)",borderBottom:"1px solid rgba(99,102,241,.15)",flexShrink:0,zIndex:30,gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>setScreen("landing")}>
             <span style={{fontSize:20,color:"#818cf8"}}>⬡</span>
             <span style={{fontSize:16,fontWeight:800,letterSpacing:"0.14em",color:"#f1f5f9",fontFamily:"'DM Mono',monospace"}}>FRAML<span style={{color:"#818cf8"}}>GRAPH</span></span>
           </div>
-          <span style={{fontSize:9,color:"#1e293b",letterSpacing:"0.1em",textTransform:"uppercase",borderLeft:"1px solid rgba(255,255,255,.06)",paddingLeft:14}}>Transaction Relationship Intelligence</span>
+          <span style={{fontSize:9,color:"#1e293b",letterSpacing:"0.1em",textTransform:"uppercase",borderLeft:"1px solid rgba(255,255,255,.06)",paddingLeft:12}}>Transaction Relationship Intelligence</span>
         </div>
-        {(selUser||selTx)&&(<div style={{display:"flex",alignItems:"center",gap:7,background:"rgba(99,102,241,.09)",border:"1px solid rgba(99,102,241,.2)",borderRadius:20,padding:"4px 13px"}}>
+
+        {/* Header context chip */}
+        {(selUser||selTx)&&(<div style={{display:"flex",alignItems:"center",gap:7,background:"rgba(99,102,241,.09)",border:"1px solid rgba(99,102,241,.2)",borderRadius:20,padding:"4px 13px",flexShrink:0}}>
           <span style={{width:6,height:6,borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 7px #818cf8",display:"block"}}/>
           <span style={{fontSize:11,color:"#c7d2fe",fontWeight:600}}>{selUser?(selUser.name||selUser.userId):selTx?.transactionId}</span>
         </div>)}
+
+        {/* Header data management buttons */}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto",flexShrink:0}}>
+          {/* Data status indicator */}
+          <div style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",background:hasData?"rgba(52,211,153,.06)":"rgba(251,191,36,.06)",border:`1px solid ${hasData?"rgba(52,211,153,.2)":"rgba(251,191,36,.2)"}`,borderRadius:20}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:hasData?"#34d399":"#fbbf24",display:"block",boxShadow:hasData?"0 0 6px #34d39966":"0 0 6px #fbbf2466"}}/>
+            <span style={{fontSize:9,color:hasData?"#34d399":"#fbbf24",fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.07em"}}>{hasData?"Data Active":"No Data"}</span>
+          </div>
+
+          <button className="hdr-btn" onClick={()=>setShowPipeline(true)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(99,102,241,.12)",border:"1px solid rgba(99,102,241,.3)",borderRadius:7,color:"#c7d2fe",padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"opacity .15s"}}>
+            <span style={{fontSize:13}}>⬡</span> Insert Data
+          </button>
+
+          <button className="hdr-btn" onClick={()=>setShowDeleteConfirm(true)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:7,color:"#fca5a5",padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"opacity .15s",opacity:hasData?1:.4}} disabled={!hasData}>
+            <span style={{fontSize:11}}>✕</span> Delete Data
+          </button>
+        </div>
       </header>
+
+      {/* ── Body ── */}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         <div style={{width:700,minWidth:480,display:"flex",flexDirection:"column",borderRight:"1px solid rgba(99,102,241,.1)",background:"#080f20"}}>
           <div style={{display:"flex",borderBottom:"1px solid rgba(99,102,241,.1)",background:"#060c1a",flexShrink:0}}>
@@ -777,15 +1106,31 @@ function App(){
           </div>
           {tab==="users"
             ?<UsersTab key={userRefresh} onSelectUser={loadUserGraph} selectedUserId={selUser?.userId} onAdd={()=>setUserModal({mode:"add"})} onEdit={u=>setUserModal({mode:"edit",data:u})}/>
-            :<TransactionsTab key={txRefresh} onSelectTx={loadTxGraph} selectedTxId={selTx?.transactionId} onAdd={()=>setTxModal({mode:"add"})} onEdit={tx=>setTxModal({mode:"edit",data:tx})}/>
+            :<TransactionsTab key={txRefresh} refreshKey={globalRefresh} onSelectTx={loadTxGraph} selectedTxId={selTx?.transactionId} onAdd={()=>setTxModal({mode:"add"})} onEdit={tx=>setTxModal({mode:"edit",data:tx})}/>
           }
         </div>
         <div style={{flex:1,display:"flex",flexDirection:"column",background:"#060c1a",backgroundImage:"radial-gradient(ellipse at 15% 50%,rgba(79,70,229,.05) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(124,58,237,.03) 0%,transparent 50%)"}}>
           <GraphPanel graphData={graphData} loading={graphLoading} error={graphError} title={graphTitle} onExploreNode={handleExploreNode} onEditNode={handleEditNode}/>
         </div>
       </div>
-      {userModal&&<UserModal editUser={userModal.mode==="edit"?userModal.data:null} onClose={()=>setUserModal(null)} onSaved={()=>setUserRefresh(r=>r+1)}/>}
-      {txModal&&<TransactionModal editTx={txModal.mode==="edit"?txModal.data:null} onClose={()=>setTxModal(null)} onSaved={()=>setTxRefresh(r=>r+1)}/>}
+
+      {/* ── Modals ── */}
+      {userModal&&<UserModal editUser={userModal.mode==="edit"?userModal.data:null} onClose={()=>setUserModal(null)} onSaved={()=>{setUserRefresh(r=>r+1);toast(userModal.mode==="edit"?"User updated":"User added","success");}}/>}
+      {txModal&&<TransactionModal editTx={txModal.mode==="edit"?txModal.data:null} onClose={()=>setTxModal(null)} onSaved={()=>{setTxRefresh(r=>r+1);toast(txModal.mode==="edit"?"Transaction updated":"Transaction added","success");}}/>}
+
+      {showPipeline&&<PipelineModal hasData={hasData} onClose={()=>setShowPipeline(false)} onDone={refreshAll}/>}
+      {showNoData&&<NoDataModal onClose={()=>setShowNoData(false)} onDone={()=>{refreshAll();setHasData(true);}}/>}
+      {showDeleteConfirm&&<ConfirmModal
+        title="Delete All Data"
+        message="This will permanently delete ALL transaction and user data from the graph database. This action cannot be undone."
+        confirmLabel="Delete Everything"
+        danger
+        onConfirm={handleDelete}
+        onClose={()=>setShowDeleteConfirm(false)}
+        key="delete-confirm"
+      />}
+
+      <ToastHost toasts={toasts}/>
     </div>
   );
 }

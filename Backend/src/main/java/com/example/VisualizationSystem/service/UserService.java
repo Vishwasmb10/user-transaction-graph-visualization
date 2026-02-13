@@ -104,4 +104,20 @@ public class UserService {
                 search, email, phone, paymentMethod, skip, size);
         return new PageResponse<>(users, total, page, size);
     }
+
+    public Optional<User> findById(String id) {
+        return (userRepository.findById(id));
+    }
+
+//    public Optional<User> findByEmail(String email) {
+//        return Optional.ofNullable(userRepository.findBy(email));
+//    }
+
+    public void deleteById(String id) {
+        userRepository.deleteById(id);
+    }
+
+    public UserResponse partialUpdate(String id, UserRequest request) {
+        return createOrUpdate(request); // Simple implementation
+    }
 }

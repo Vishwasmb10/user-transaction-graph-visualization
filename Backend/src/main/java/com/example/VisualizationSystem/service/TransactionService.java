@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -104,6 +105,14 @@ public class TransactionService {
         );
 
         return new PageResponse<>(txs, total, page, size);
+    }
+
+    public Optional<Transaction> findById(String id) {
+        return (transactionRepository.findById(id));
+    }
+
+    public void deleteById(String id) {
+        transactionRepository.deleteById(id);
     }
 
 }
