@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -73,8 +74,20 @@ public class TransactionService {
             String status,
             String paymentMethod,
             int page,
-            int size
+            int size,
+            String sortBy,
+            String sortDir
     ) {
+
+        // allowed sort fields (prevents Cypher injection)
+        Set<String> allowedSort = Set.of("timestamp", "amount", "status", "paymentMethod");
+
+        if (!allowedSort.contains(sortBy)) {
+            sortBy = "timestamp";
+        }
+
+        sortDir = "asc".equalsIgnoreCase(sortDir) ? "ASC" : "DESC";
+
         long total = transactionRepository.countTransactions(
                 search, ip, deviceId, minAmount, maxAmount, status, paymentMethod);
 
@@ -87,8 +100,10 @@ public class TransactionService {
 
         List<Transaction> txs = transactionRepository.findTransactionsPaged(
                 search, ip, deviceId, minAmount, maxAmount,
-                status, paymentMethod, skip, size);
+                status, paymentMethod, skip, size, sortBy, sortDir
+        );
 
         return new PageResponse<>(txs, total, page, size);
     }
+
 }

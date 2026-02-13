@@ -31,7 +31,9 @@ public class TransactionController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "timestamp") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir
     ) {
         return ResponseEntity.ok(
                 transactionService.getTransactionsPaged(
@@ -42,9 +44,14 @@ public class TransactionController {
                         maxAmount,
                         blankToNull(status),
                         blankToNull(paymentMethod),
-                        page, size)
+                        page,
+                        size,
+                        sortBy,
+                        sortDir
+                )
         );
     }
+
 
     private String blankToNull(String s) {
         return (s == null || s.isBlank()) ? null : s.trim();
