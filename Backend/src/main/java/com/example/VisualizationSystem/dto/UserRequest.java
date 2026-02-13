@@ -5,6 +5,7 @@ import lombok.*;
 import org.springframework.data.neo4j.core.schema.Id;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -23,7 +24,7 @@ public class UserRequest {
     private String email;
     private String phone;
     private String address;
-    private String paymentMethod;
+    private List<String> paymentMethods;
     private LocalDateTime createdAt=LocalDateTime.now();
 
 }

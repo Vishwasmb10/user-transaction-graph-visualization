@@ -1,21 +1,15 @@
-
 package com.example.VisualizationSystem.service;
 
 import com.example.VisualizationSystem.dto.PageResponse;
-import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserRequest;
 import com.example.VisualizationSystem.dto.UserResponse;
 import com.example.VisualizationSystem.model.User;
 import com.example.VisualizationSystem.repository.UserGraphRelationshipRepository;
 import com.example.VisualizationSystem.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.neo4j.core.schema.Id;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -33,9 +27,10 @@ public class UserService {
                 request.getEmail(),
                 request.getPhone(),
                 request.getAddress(),
-                request.getPaymentMethod()
+                request.getPaymentMethods()        // ✅ List<String>
         );
 
+        // ── email (unchanged) ──
         if (existing == null || !Objects.equals(existing.getEmail(), saved.getEmail())) {
             graphRepo.deleteSameEmailLinks(saved.getUserId());
             if (saved.getEmail() != null) {
@@ -43,6 +38,7 @@ public class UserService {
             }
         }
 
+        // ── phone (unchanged) ──
         if (existing == null || !Objects.equals(existing.getPhone(), saved.getPhone())) {
             graphRepo.deleteSamePhoneLinks(saved.getUserId());
             if (saved.getPhone() != null) {
@@ -50,6 +46,7 @@ public class UserService {
             }
         }
 
+        // ── address (unchanged) ──
         if (existing == null || !Objects.equals(existing.getAddress(), saved.getAddress())) {
             graphRepo.deleteSameAddressLinks(saved.getUserId());
             if (saved.getAddress() != null) {
@@ -57,20 +54,28 @@ public class UserService {
             }
         }
 
-        if (existing == null || !Objects.equals(existing.getPaymentMethod(), saved.getPaymentMethod())) {
-            graphRepo.deleteSamePaymentLinks(saved.getUserId());
-            if (saved.getPaymentMethod() != null) {
-                graphRepo.linkUsersByPaymentMethod(saved.getUserId(), saved.getPaymentMethod());
+        // ✅ CHANGED: hub-and-spoke payment method linking
+        Set<String> oldMethods = existing != null && existing.getPaymentMethods() != null
+                ? new HashSet<>(existing.getPaymentMethods())
+                : Collections.emptySet();
+        Set<String> newMethods = saved.getPaymentMethods() != null
+                ? new HashSet<>(saved.getPaymentMethods())
+                : Collections.emptySet();
+
+        if (existing == null || !oldMethods.equals(newMethods)) {
+            graphRepo.deletePaymentLinks(saved.getUserId());      // ✅ delete USES_PAYMENT
+            if (!newMethods.isEmpty()) {
+                graphRepo.linkUserPaymentMethods(                  // ✅ create USES_PAYMENT
+                        saved.getUserId(), saved.getPaymentMethods());
             }
         }
 
-        return UserResponse
-                .builder()
+        return UserResponse.builder()
                 .name(saved.getName())
                 .email(saved.getEmail())
                 .phone(saved.getPhone())
                 .address(saved.getAddress())
-                .paymentMethod(saved.getPaymentMethod())
+                .paymentMethods(saved.getPaymentMethods())         // ✅
                 .createdAt(saved.getCreatedAt())
                 .build();
     }
@@ -82,25 +87,20 @@ public class UserService {
     public PageResponse<User> getUsersPaged(
             String email,
             String phone,
+            String paymentMethod,       // ✅ optional filter
             int page,
             int size
     ) {
-        long total = userRepository.countUsers(email, phone);
-
+        long total = userRepository.countUsers(email, phone, paymentMethod);
         long skip = (long) page * size;
 
-        // 🔥 Clamp invalid page
         if (skip >= total && total > 0) {
             page = 0;
             skip = 0;
         }
 
-        List<User> users = userRepository.findUsersPaged(email, phone, skip, size);
-
+        List<User> users = userRepository.findUsersPaged(
+                email, phone, paymentMethod, skip, size);
         return new PageResponse<>(users, total, page, size);
     }
-
-
 }
-
-

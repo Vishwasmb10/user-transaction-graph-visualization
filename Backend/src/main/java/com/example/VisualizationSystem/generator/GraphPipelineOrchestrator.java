@@ -10,19 +10,9 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 
-/**
- * Runs the full pipeline on application startup.
- *
- * Phase 0 → Clean DB
- * Phase 1 → Schema (indexes/constraints)
- * Phase 2 → Generate data in memory
- * Phase 3 → Insert nodes (UNWIND batches)
- * Phase 4 → Direct edges (SENT, RECEIVED_BY, TRANSFERRED_TO)
- * Phase 5 → Shared-attribute edges (SAME_EMAIL, SAME_IP, etc.)
- */
 @Slf4j
-@Component
-@Order(1)
+//@Component
+//@Order(1)
 @RequiredArgsConstructor
 public class GraphPipelineOrchestrator implements CommandLineRunner {
 
@@ -40,24 +30,23 @@ public class GraphPipelineOrchestrator implements CommandLineRunner {
                 props.getUserCount(), props.getTransactionCount());
         log.info("════════════════════════════════════════════════");
 
-        // Phase 0
         if (props.isCleanBeforeInsert()) {
             timed("Phase 0 — Clean DB", ingestion::cleanDatabase);
         }
 
-        // Phase 1
         timed("Phase 1 — Create Schema", ingestion::createSchema);
 
-        // Phase 2
         timed("Phase 2 — Generate Data", generator::generate);
 
-        // Phase 3
         timed("Phase 3a — Insert Users",
                 () -> ingestion.insertUsers(generator.getUsers()));
         timed("Phase 3b — Insert Transactions",
                 () -> ingestion.insertTransactions(generator.getTransactions()));
 
-        // Phase 4
+        // ✅ NEW — create the 7 PaymentMethod hub nodes before edges
+        timed("Phase 3c — Insert PaymentMethod Nodes",
+                ingestion::createPaymentMethodNodes);
+
         timed("Phase 4a — SENT / RECEIVED_BY edges",
                 () -> ingestion.createParticipationEdges(
                         generator.getTransactionEdges()));
@@ -65,13 +54,12 @@ public class GraphPipelineOrchestrator implements CommandLineRunner {
                 () -> ingestion.createTransferEdges(
                         generator.getTransactionEdges()));
 
-        // Phase 5
+        // Phase 5a now includes USES_PAYMENT (hub-and-spoke) instead of pairwise
         timed("Phase 5a — Shared User attributes",
                 ingestion::createSharedUserAttributeEdges);
         timed("Phase 5b — Shared Transaction attributes",
                 ingestion::createSharedTransactionAttributeEdges);
 
-        // Done
         Duration total = Duration.between(start, Instant.now());
         log.info("════════════════════════════════════════════════");
         log.info("  Pipeline complete in {}", formatDuration(total));

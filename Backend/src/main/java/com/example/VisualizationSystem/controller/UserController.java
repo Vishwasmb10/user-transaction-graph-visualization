@@ -26,20 +26,16 @@ public class UserController {
 //        return userService.getAll();
 //    }
 
+    // Add paymentMethod as an optional query parameter
     @GetMapping
     public PageResponse<User> getUsers(
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String phone,
+            @RequestParam(required = false) String paymentMethod,  // ✅ NEW
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-
-        // 🔥 If any filter is applied → reset page to 0
-        if (email != null || phone != null) {
-            page = 0;
-        }
-
-        return userService.getUsersPaged(email, phone, page, size);
+        return userService.getUsersPaged(email, phone, paymentMethod, page, size);
     }
 
 

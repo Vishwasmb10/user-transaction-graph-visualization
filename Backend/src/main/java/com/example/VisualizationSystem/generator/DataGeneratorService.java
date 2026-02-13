@@ -32,6 +32,12 @@ public class DataGeneratorService {
     @Getter
     private List<TransactionEdgeData> transactionEdges;
 
+    // ✅ NEW — fixed pool of payment method TYPES (not random credit card numbers)
+    private static final List<String> PAYMENT_METHOD_TYPES = List.of(
+            "CREDIT_CARD", "DEBIT_CARD", "CASH",
+            "BANK_TRANSFER", "UPI", "PAYPAL", "CRYPTO"
+    );
+
     public void generate() {
         log.info("Generating {} users and {} transactions...",
                 props.getUserCount(), props.getTransactionCount());
@@ -46,8 +52,9 @@ public class DataGeneratorService {
                 () -> faker.phoneNumber().subscriberNumber(10));
         List<String> addressPool = buildPool(props.getAddressPoolSize(),
                 () -> faker.address().streetAddress());
-        List<String> paymentPool = buildPool(props.getPaymentPoolSize(),
-                () -> faker.finance().creditCard());
+
+        // ✅ REMOVED: paymentPool from faker — we use the fixed PAYMENT_METHOD_TYPES list
+
         List<String> ipPool      = buildPool(props.getIpPoolSize(),
                 () -> faker.internet().ipV4Address());
         List<String> devicePool  = buildPool(props.getDevicePoolSize(),
@@ -58,13 +65,18 @@ public class DataGeneratorService {
         LocalDateTime now = LocalDateTime.now();
 
         for (int i = 0; i < props.getUserCount(); i++) {
+
+            // ✅ Pick 1–3 random payment methods per user (realistic multi-method)
+            int methodCount = 1 + rng.nextInt(3);  // 1, 2, or 3
+            List<String> methods = pickMultiple(PAYMENT_METHOD_TYPES, methodCount, rng);
+
             users.add(User.builder()
                     .userId("U-" + UUID.randomUUID())
                     .name(faker.name().fullName())
                     .email(pick(emailPool, rng))
                     .phone(pick(phonePool, rng))
                     .address(pick(addressPool, rng))
-                    .paymentMethod(pick(paymentPool, rng))
+                    .paymentMethods(methods)               // ✅ CHANGED: List<String>
                     .createdAt(now.minusDays(rng.nextInt(365)))
                     .build());
         }
@@ -113,5 +125,12 @@ public class DataGeneratorService {
 
     private static <T> T pick(List<T> pool, Random rng) {
         return pool.get(rng.nextInt(pool.size()));
+    }
+
+    // ✅ NEW — pick `count` unique random elements from a list
+    private static <T> List<T> pickMultiple(List<T> pool, int count, Random rng) {
+        List<T> shuffled = new ArrayList<>(pool);
+        Collections.shuffle(shuffled, rng);
+        return new ArrayList<>(shuffled.subList(0, Math.min(count, shuffled.size())));
     }
 }

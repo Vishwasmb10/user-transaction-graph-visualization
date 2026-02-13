@@ -5,6 +5,7 @@ import org.springframework.data.neo4j.core.schema.Id;
 import org.springframework.data.neo4j.core.schema.Node;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Node("User")
 @Data
@@ -22,6 +23,6 @@ public class User {
     private String email;
     private String phone;
     private String address;
-    private String paymentMethod;
+    private List<String> paymentMethods ;
     private LocalDateTime createdAt;
 }
