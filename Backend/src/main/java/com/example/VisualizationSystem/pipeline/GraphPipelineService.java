@@ -29,9 +29,9 @@ public class GraphPipelineService {
                 props.getUserCount(), props.getTransactionCount());
         log.info("════════════════════════════════════════════════");
 
-        if (props.isCleanBeforeInsert()) {
-            timed("Phase 0 — Clean DB", ingestion::cleanDatabase);
-        }
+//        if (props.isCleanBeforeInsert()) {
+//            timed("Phase 0 — Clean DB", ingestion::cleanDatabase);
+//        }
 
         timed("Phase 1 — Create Schema", ingestion::createSchema);
 
