@@ -40,7 +40,8 @@ public interface TransactionRepository extends Neo4jRepository<Transaction, Stri
 
     @Query("""
         MATCH (t:Transaction)
-        WHERE ($ip IS NULL OR $ip = '' OR t.ip = $ip)
+        WHERE ($search IS NULL OR $search = '' OR t.transactionId CONTAINS $search)
+          AND ($ip IS NULL OR $ip = '' OR t.ip = $ip)
           AND ($deviceId IS NULL OR $deviceId = '' OR t.deviceId = $deviceId)
           AND ($minAmount IS NULL OR t.amount >= $minAmount)
           AND ($maxAmount IS NULL OR t.amount <= $maxAmount)
@@ -52,6 +53,7 @@ public interface TransactionRepository extends Neo4jRepository<Transaction, Stri
         LIMIT $limit
     """)
     List<Transaction> findTransactionsPaged(
+            @Param("search") String search,
             @Param("ip") String ip,
             @Param("deviceId") String deviceId,
             @Param("minAmount") Double minAmount,
@@ -64,7 +66,8 @@ public interface TransactionRepository extends Neo4jRepository<Transaction, Stri
 
     @Query("""
         MATCH (t:Transaction)
-        WHERE ($ip IS NULL OR $ip = '' OR t.ip = $ip)
+        WHERE ($search IS NULL OR $search = '' OR t.transactionId CONTAINS $search)
+          AND ($ip IS NULL OR $ip = '' OR t.ip = $ip)
           AND ($deviceId IS NULL OR $deviceId = '' OR t.deviceId = $deviceId)
           AND ($minAmount IS NULL OR t.amount >= $minAmount)
           AND ($maxAmount IS NULL OR t.amount <= $maxAmount)
@@ -73,6 +76,7 @@ public interface TransactionRepository extends Neo4jRepository<Transaction, Stri
         RETURN count(t)
     """)
     long countTransactions(
+            @Param("search") String search,
             @Param("ip") String ip,
             @Param("deviceId") String deviceId,
             @Param("minAmount") Double minAmount,

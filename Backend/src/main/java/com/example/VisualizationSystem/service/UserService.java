@@ -27,10 +27,10 @@ public class UserService {
                 request.getEmail(),
                 request.getPhone(),
                 request.getAddress(),
-                request.getPaymentMethods()        // ✅ List<String>
+                request.getPaymentMethods()
         );
 
-        // ── email (unchanged) ──
+        // ── email ──
         if (existing == null || !Objects.equals(existing.getEmail(), saved.getEmail())) {
             graphRepo.deleteSameEmailLinks(saved.getUserId());
             if (saved.getEmail() != null) {
@@ -38,7 +38,7 @@ public class UserService {
             }
         }
 
-        // ── phone (unchanged) ──
+        // ── phone ──
         if (existing == null || !Objects.equals(existing.getPhone(), saved.getPhone())) {
             graphRepo.deleteSamePhoneLinks(saved.getUserId());
             if (saved.getPhone() != null) {
@@ -46,7 +46,7 @@ public class UserService {
             }
         }
 
-        // ── address (unchanged) ──
+        // ── address ──
         if (existing == null || !Objects.equals(existing.getAddress(), saved.getAddress())) {
             graphRepo.deleteSameAddressLinks(saved.getUserId());
             if (saved.getAddress() != null) {
@@ -54,7 +54,7 @@ public class UserService {
             }
         }
 
-        // ✅ CHANGED: hub-and-spoke payment method linking
+        // ── payment methods (hub-and-spoke) ──
         Set<String> oldMethods = existing != null && existing.getPaymentMethods() != null
                 ? new HashSet<>(existing.getPaymentMethods())
                 : Collections.emptySet();
@@ -63,9 +63,9 @@ public class UserService {
                 : Collections.emptySet();
 
         if (existing == null || !oldMethods.equals(newMethods)) {
-            graphRepo.deletePaymentLinks(saved.getUserId());      // ✅ delete USES_PAYMENT
+            graphRepo.deletePaymentLinks(saved.getUserId());
             if (!newMethods.isEmpty()) {
-                graphRepo.linkUserPaymentMethods(                  // ✅ create USES_PAYMENT
+                graphRepo.linkUserPaymentMethods(
                         saved.getUserId(), saved.getPaymentMethods());
             }
         }
@@ -75,7 +75,7 @@ public class UserService {
                 .email(saved.getEmail())
                 .phone(saved.getPhone())
                 .address(saved.getAddress())
-                .paymentMethods(saved.getPaymentMethods())         // ✅
+                .paymentMethods(saved.getPaymentMethods())
                 .createdAt(saved.getCreatedAt())
                 .build();
     }
@@ -85,13 +85,14 @@ public class UserService {
     }
 
     public PageResponse<User> getUsersPaged(
+            String search,
             String email,
             String phone,
-            String paymentMethod,       // ✅ optional filter
+            String paymentMethod,
             int page,
             int size
     ) {
-        long total = userRepository.countUsers(email, phone, paymentMethod);
+        long total = userRepository.countUsers(search, email, phone, paymentMethod);
         long skip = (long) page * size;
 
         if (skip >= total && total > 0) {
@@ -100,7 +101,7 @@ public class UserService {
         }
 
         List<User> users = userRepository.findUsersPaged(
-                email, phone, paymentMethod, skip, size);
+                search, email, phone, paymentMethod, skip, size);
         return new PageResponse<>(users, total, page, size);
     }
 }

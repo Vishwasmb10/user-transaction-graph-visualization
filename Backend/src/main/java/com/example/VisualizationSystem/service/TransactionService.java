@@ -25,11 +25,11 @@ public class TransactionService {
         Transaction saved = transactionRepository.upsertTransaction(
                 request.getTransactionId(),
                 request.getAmount(),
-                request.getCurrency(),          // NEW
+                request.getCurrency(),
                 request.getIp(),
                 request.getDeviceId(),
-                request.getStatus(),            // NEW
-                request.getPaymentMethod()      // NEW
+                request.getStatus(),
+                request.getPaymentMethod()
         );
 
         // ── SAME_IP linking ──
@@ -65,19 +65,20 @@ public class TransactionService {
     }
 
     public PageResponse<Transaction> getTransactionsPaged(
+            String search,
             String ip,
             String deviceId,
             Double minAmount,
             Double maxAmount,
-            String status,              // NEW
-            String paymentMethod,       // NEW
+            String status,
+            String paymentMethod,
             int page,
             int size
     ) {
-        long skip = (long) page * size;
-
         long total = transactionRepository.countTransactions(
-                ip, deviceId, minAmount, maxAmount, status, paymentMethod);
+                search, ip, deviceId, minAmount, maxAmount, status, paymentMethod);
+
+        long skip = (long) page * size;
 
         if (skip >= total && total > 0) {
             page = 0;
@@ -85,7 +86,8 @@ public class TransactionService {
         }
 
         List<Transaction> txs = transactionRepository.findTransactionsPaged(
-                ip, deviceId, minAmount, maxAmount, status, paymentMethod, skip, size);
+                search, ip, deviceId, minAmount, maxAmount,
+                status, paymentMethod, skip, size);
 
         return new PageResponse<>(txs, total, page, size);
     }

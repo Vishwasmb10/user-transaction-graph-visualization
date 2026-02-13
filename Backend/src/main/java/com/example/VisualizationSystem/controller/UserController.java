@@ -24,6 +24,7 @@ public class UserController {
 
     @GetMapping
     public ResponseEntity<PageResponse<User>> list(
+            @RequestParam(required = false) String name,
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String phone,
             @RequestParam(required = false) String paymentMethod,
@@ -32,6 +33,7 @@ public class UserController {
     ) {
         return ResponseEntity.ok(
                 userService.getUsersPaged(
+                        blankToNull(name),
                         blankToNull(email),
                         blankToNull(phone),
                         blankToNull(paymentMethod),

@@ -23,6 +23,7 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<PageResponse<Transaction>> list(
+            @RequestParam(required = false) String transactionId,
             @RequestParam(required = false) String ip,
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) Double minAmount,
@@ -34,6 +35,7 @@ public class TransactionController {
     ) {
         return ResponseEntity.ok(
                 transactionService.getTransactionsPaged(
+                        blankToNull(transactionId),
                         blankToNull(ip),
                         blankToNull(deviceId),
                         minAmount,
@@ -44,7 +46,6 @@ public class TransactionController {
         );
     }
 
-    /** Convert empty/blank strings to null so Cypher IS NULL checks work */
     private String blankToNull(String s) {
         return (s == null || s.isBlank()) ? null : s.trim();
     }

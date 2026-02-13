@@ -50,7 +50,10 @@ public interface UserRepository extends Neo4jRepository<User, String> {
 
     @Query("""
         MATCH (u:User)
-        WHERE ($email IS NULL OR $email = '' OR u.email = $email)
+        WHERE ($search IS NULL OR $search = ''
+               OR u.userId CONTAINS $search
+               OR toLower(u.name) CONTAINS toLower($search))
+          AND ($email IS NULL OR $email = '' OR u.email = $email)
           AND ($phone IS NULL OR $phone = '' OR u.phone = $phone)
           AND ($paymentMethod IS NULL OR $paymentMethod = '' OR $paymentMethod IN u.paymentMethods)
         RETURN u
@@ -59,6 +62,7 @@ public interface UserRepository extends Neo4jRepository<User, String> {
         LIMIT $limit
     """)
     List<User> findUsersPaged(
+            @Param("search") String search,
             @Param("email") String email,
             @Param("phone") String phone,
             @Param("paymentMethod") String paymentMethod,
@@ -68,12 +72,16 @@ public interface UserRepository extends Neo4jRepository<User, String> {
 
     @Query("""
         MATCH (u:User)
-        WHERE ($email IS NULL OR $email = '' OR u.email = $email)
+        WHERE ($search IS NULL OR $search = ''
+               OR u.userId CONTAINS $search
+               OR toLower(u.name) CONTAINS toLower($search))
+          AND ($email IS NULL OR $email = '' OR u.email = $email)
           AND ($phone IS NULL OR $phone = '' OR u.phone = $phone)
           AND ($paymentMethod IS NULL OR $paymentMethod = '' OR $paymentMethod IN u.paymentMethods)
         RETURN count(u)
     """)
     long countUsers(
+            @Param("search") String search,
             @Param("email") String email,
             @Param("phone") String phone,
             @Param("paymentMethod") String paymentMethod
