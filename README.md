@@ -132,17 +132,13 @@ The system follows a decoupled architecture, ensuring the backend handles the he
 
   
 
-    ```bash
+ 
 
-  
+    `docker compose up --build`
 
-    docker compose up --build
 
-  
 
-    ```
-
-    R`✅ Neo4j is reachable` message in the terminal indicates that the application is ready to use
+    `✅ Neo4j is reachable` message in the terminal indicates that the application is ready to use
 
   
 
@@ -164,15 +160,11 @@ The system follows a decoupled architecture, ensuring the backend handles the he
 
     Note: In the case of fresh re-run ,
 
-        ```
 
-        docker compose down -v
+        `docker compose down -v`
 
-        docker compose up --build
+        `docker compose up --build`
 
-  
-
-        ```
 
 ---
 
