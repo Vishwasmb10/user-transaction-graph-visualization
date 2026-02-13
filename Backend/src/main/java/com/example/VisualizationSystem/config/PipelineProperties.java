@@ -26,4 +26,7 @@ public class PipelineProperties {
 
     private int maxPairwiseCluster = 50;
     private boolean cleanBeforeInsert = true;
+    private boolean runOnStartup=false;
+
+
 }
