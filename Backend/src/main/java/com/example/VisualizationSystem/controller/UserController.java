@@ -6,37 +6,40 @@ import com.example.VisualizationSystem.dto.UserResponse;
 import com.example.VisualizationSystem.model.User;
 import com.example.VisualizationSystem.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/users")
+@RequiredArgsConstructor
+@CrossOrigin(origins = "*")
 public class UserController {
+
     private final UserService userService;
 
     @PostMapping
-    public UserResponse createOrUpdate(@RequestBody UserRequest userRequest) {
-        return userService.createOrUpdate(userRequest);
+    public ResponseEntity<UserResponse> create(@RequestBody UserRequest request) {
+        return ResponseEntity.ok(userService.createOrUpdate(request));
     }
 
-//    @GetMapping
-//    public List<UserResponse> getAll() {
-//        return userService.getAll();
-//    }
-
-    // Add paymentMethod as an optional query parameter
     @GetMapping
-    public PageResponse<User> getUsers(
+    public ResponseEntity<PageResponse<User>> list(
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String phone,
-            @RequestParam(required = false) String paymentMethod,  // ✅ NEW
+            @RequestParam(required = false) String paymentMethod,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return userService.getUsersPaged(email, phone, paymentMethod, page, size);
+        return ResponseEntity.ok(
+                userService.getUsersPaged(
+                        blankToNull(email),
+                        blankToNull(phone),
+                        blankToNull(paymentMethod),
+                        page, size)
+        );
     }
 
-
+    private String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
+    }
 }

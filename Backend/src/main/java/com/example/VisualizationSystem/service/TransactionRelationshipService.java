@@ -10,44 +10,54 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class TransactionRelationshipService {
-    private final Neo4jClient neo4jClient;
 
+    private final Neo4jClient neo4jClient;
     private final TransactionGraphRelationshipRepository graphRepo;
 
     public Map<String, Object> getTransactionGraph(String txId) {
 
         String query = """
-                    MATCH (tx:Transaction {transactionId: $txId})
-                
+                MATCH (tx:Transaction {transactionId: $txId})
+
                 WITH tx,
                      [(sender:User)-[:SENT]->(tx) | sender { .userId, .name }] AS senders,
                      [(tx)-[:RECEIVED_BY]->(receiver:User) | receiver { .userId, .name }] AS receivers
-                
-                // Collect same-IP transactions
+
+                // Same-IP transactions (enriched)
                 CALL (tx) {
                     WITH tx
-                    MATCH (otherIpTx:Transaction)
+                    OPTIONAL MATCH (otherIpTx:Transaction)
                     WHERE otherIpTx.ip = tx.ip AND otherIpTx.transactionId <> tx.transactionId
-                    RETURN collect(otherIpTx { .transactionId, .amount }) AS sameIpTransactions
+                    RETURN collect(otherIpTx {
+                        .transactionId, .amount, .currency,
+                        .ip, .deviceId, .status, .paymentMethod,
+                        timestamp: toString(otherIpTx.timestamp)
+                    }) AS sameIpTransactions
                 }
-                
-                // Collect same-device transactions
+
+                // Same-device transactions (enriched)
                 CALL (tx) {
                     WITH tx
-                    MATCH (otherDeviceTx:Transaction)
+                    OPTIONAL MATCH (otherDeviceTx:Transaction)
                     WHERE otherDeviceTx.deviceId = tx.deviceId AND otherDeviceTx.transactionId <> tx.transactionId
-                    RETURN collect(otherDeviceTx { .transactionId, .amount }) AS sameDeviceTransactions
+                    RETURN collect(otherDeviceTx {
+                        .transactionId, .amount, .currency,
+                        .ip, .deviceId, .status, .paymentMethod,
+                        timestamp: toString(otherDeviceTx.timestamp)
+                    }) AS sameDeviceTransactions
                 }
-                
+
                 RETURN
-                  tx { .transactionId, .amount, .ip, .deviceId } AS transaction,
+                  tx {
+                      .transactionId, .amount, .currency,
+                      .ip, .deviceId, .status, .paymentMethod,
+                      timestamp: toString(tx.timestamp)
+                  } AS transaction,
                   senders,
                   receivers,
                   sameIpTransactions,
                   sameDeviceTransactions
-                
                 """;
-
 
         Map<String, Object> raw = neo4jClient.query(query)
                 .bind(txId).to("txId")
@@ -63,117 +73,138 @@ public class TransactionRelationshipService {
         List<Map<String, Object>> edges = new ArrayList<>();
         Set<String> added = new HashSet<>();
 
+        // ── 1. Main Transaction Node (enriched) ──
+        @SuppressWarnings("unchecked")
         Map<String, Object> tx = (Map<String, Object>) raw.get("transaction");
         String mainTxId = (String) tx.get("transactionId");
 
-        // Add main transaction node
-        nodes.add(Map.of(
-                "id", mainTxId,
-                "label", mainTxId,
-                "type", "transaction"
-        ));
+        nodes.add(buildTxNode(tx));
         added.add(mainTxId);
 
-        // Senders
+        // ── 2. Senders ──
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> senders =
                 (List<Map<String, Object>>) raw.get("senders");
 
-        for (Map<String, Object> sender : senders) {
-            String userId = (String) sender.get("userId");
-
-            if (!added.contains(userId)) {
-                nodes.add(Map.of(
-                        "id", userId,
-                        "label", sender.get("name"),
-                        "type", "user"
+        if (senders != null) {
+            for (Map<String, Object> sender : senders) {
+                String senderUserId = (String) sender.get("userId");
+                if (!added.contains(senderUserId)) {
+                    nodes.add(Map.of("id", senderUserId, "label", sender.get("name"), "type", "user"));
+                    added.add(senderUserId);
+                }
+                edges.add(Map.of(
+                        "id", senderUserId + "_" + mainTxId + "_SENT",
+                        "source", senderUserId,
+                        "target", mainTxId,
+                        "type", "SENT"
                 ));
-                added.add(userId);
             }
-
-            edges.add(Map.of(
-                    "id", userId + "_" + mainTxId + "_SENT",
-                    "source", userId,
-                    "target", mainTxId,
-                    "type", "SENT"
-            ));
         }
 
-        // Receivers
+        // ── 3. Receivers ──
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> receivers =
                 (List<Map<String, Object>>) raw.get("receivers");
 
-        for (Map<String, Object> receiver : receivers) {
-            String userId = (String) receiver.get("userId");
-
-            if (!added.contains(userId)) {
-                nodes.add(Map.of(
-                        "id", userId,
-                        "label", receiver.get("name"),
-                        "type", "user"
+        if (receivers != null) {
+            for (Map<String, Object> receiver : receivers) {
+                String receiverUserId = (String) receiver.get("userId");
+                if (!added.contains(receiverUserId)) {
+                    nodes.add(Map.of("id", receiverUserId, "label", receiver.get("name"), "type", "user"));
+                    added.add(receiverUserId);
+                }
+                edges.add(Map.of(
+                        "id", mainTxId + "_" + receiverUserId + "_RECEIVED_BY",
+                        "source", mainTxId,
+                        "target", receiverUserId,
+                        "type", "RECEIVED_BY"
                 ));
-                added.add(userId);
             }
-
-            edges.add(Map.of(
-                    "id", mainTxId + "_" + userId + "_RECEIVED_BY",
-                    "source", mainTxId,
-                    "target", userId,
-                    "type", "RECEIVED_BY"
-            ));
         }
 
-        // Same IP transactions
+        // ── 4. Same IP Transactions (enriched) ──
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> sameIp =
                 (List<Map<String, Object>>) raw.get("sameIpTransactions");
 
-        for (Map<String, Object> other : sameIp) {
-            String otherId = (String) other.get("transactionId");
+        if (sameIp != null) {
+            for (Map<String, Object> other : sameIp) {
+                if (other == null || other.get("transactionId") == null) continue;
+                String otherId = (String) other.get("transactionId");
 
-            if (!added.contains(otherId)) {
-                nodes.add(Map.of(
-                        "id", otherId,
-                        "label", otherId,
-                        "type", "transaction"
+                if (!added.contains(otherId)) {
+                    nodes.add(buildTxNode(other));
+                    added.add(otherId);
+                }
+
+                edges.add(Map.of(
+                        "id", mainTxId + "_" + otherId + "_SAME_IP",
+                        "source", mainTxId,
+                        "target", otherId,
+                        "type", "SAME_IP"
                 ));
-                added.add(otherId);
             }
-
-            edges.add(Map.of(
-                    "id", mainTxId + "_" + otherId + "_SAME_IP",
-                    "source", mainTxId,
-                    "target", otherId,
-                    "type", "SAME_IP"
-            ));
         }
 
-        // Same Device transactions
+        // ── 5. Same Device Transactions (enriched) ──
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> sameDevice =
                 (List<Map<String, Object>>) raw.get("sameDeviceTransactions");
 
-        for (Map<String, Object> other : sameDevice) {
-            String otherId = (String) other.get("transactionId");
+        if (sameDevice != null) {
+            for (Map<String, Object> other : sameDevice) {
+                if (other == null || other.get("transactionId") == null) continue;
+                String otherId = (String) other.get("transactionId");
 
-            if (!added.contains(otherId)) {
-                nodes.add(Map.of(
-                        "id", otherId,
-                        "label", otherId,
-                        "type", "transaction"
+                if (!added.contains(otherId)) {
+                    nodes.add(buildTxNode(other));
+                    added.add(otherId);
+                }
+
+                // Only add if not already added from sameIp
+                String edgeId = mainTxId + "_" + otherId + "_SAME_DEVICE";
+                edges.add(Map.of(
+                        "id", edgeId,
+                        "source", mainTxId,
+                        "target", otherId,
+                        "type", "SAME_DEVICE"
                 ));
-                added.add(otherId);
             }
-
-            edges.add(Map.of(
-                    "id", mainTxId + "_" + otherId + "_SAME_DEVICE",
-                    "source", mainTxId,
-                    "target", otherId,
-                    "type", "SAME_DEVICE"
-            ));
         }
 
-        return Map.of(
-                "nodes", nodes,
-                "edges", edges
-        );
+        return Map.of("nodes", nodes, "edges", edges);
     }
 
+    /**
+     * Build an enriched transaction node map from raw Cypher result.
+     * Reusable for main tx and related txs.
+     */
+    private Map<String, Object> buildTxNode(Map<String, Object> tx) {
+        Map<String, Object> node = new HashMap<>();
+        String txId = (String) tx.get("transactionId");
+
+        node.put("id", txId);
+        node.put("type", "transaction");
+        node.put("transactionId", txId);
+
+        Object amount = tx.get("amount");
+        Object currency = tx.get("currency");
+        String currStr = currency != null ? currency.toString() : "$";
+        if (amount != null) {
+            node.put("label", String.format("%s%.2f", currStr, ((Number) amount).doubleValue()));
+        } else {
+            node.put("label", txId);
+        }
+
+        if (amount != null)                     node.put("amount", amount);
+        if (currency != null)                   node.put("currency", currency);
+        if (tx.get("timestamp") != null)        node.put("timestamp", tx.get("timestamp").toString());
+        if (tx.get("ip") != null)               node.put("ip", tx.get("ip"));
+        if (tx.get("deviceId") != null)         node.put("deviceId", tx.get("deviceId"));
+        if (tx.get("status") != null)           node.put("status", tx.get("status"));
+        if (tx.get("paymentMethod") != null)    node.put("paymentMethod", tx.get("paymentMethod"));
+
+        return node;
+    }
 }

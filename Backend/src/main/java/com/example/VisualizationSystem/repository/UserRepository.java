@@ -12,7 +12,6 @@ import java.util.List;
 @Repository
 public interface UserRepository extends Neo4jRepository<User, String> {
 
-    // ✅ CHANGED: $paymentMethod → $paymentMethods (array property)
     @Query("""
         MERGE (u:User {userId: $userId})
         ON CREATE SET
@@ -37,7 +36,6 @@ public interface UserRepository extends Neo4jRepository<User, String> {
                     @Param("address") String address,
                     @Param("paymentMethods") List<String> paymentMethods);
 
-    // ✅ CHANGED: projection field name
     @Query("""
         MATCH (u:User)
         RETURN
@@ -50,13 +48,13 @@ public interface UserRepository extends Neo4jRepository<User, String> {
     """)
     List<UserResponse> findAllUserDtos();
 
-    // ✅ ADDED: optional paymentMethod filter using IN on the array
     @Query("""
         MATCH (u:User)
-        WHERE ($email IS NULL OR u.email = $email)
-          AND ($phone IS NULL OR u.phone = $phone)
-          AND ($paymentMethod IS NULL OR $paymentMethod IN u.paymentMethods)
+        WHERE ($email IS NULL OR $email = '' OR u.email = $email)
+          AND ($phone IS NULL OR $phone = '' OR u.phone = $phone)
+          AND ($paymentMethod IS NULL OR $paymentMethod = '' OR $paymentMethod IN u.paymentMethods)
         RETURN u
+        ORDER BY u.createdAt DESC
         SKIP $skip
         LIMIT $limit
     """)
@@ -68,12 +66,11 @@ public interface UserRepository extends Neo4jRepository<User, String> {
             @Param("limit") long limit
     );
 
-    // ✅ ADDED: matching count query
     @Query("""
         MATCH (u:User)
-        WHERE ($email IS NULL OR u.email = $email)
-          AND ($phone IS NULL OR u.phone = $phone)
-          AND ($paymentMethod IS NULL OR $paymentMethod IN u.paymentMethods)
+        WHERE ($email IS NULL OR $email = '' OR u.email = $email)
+          AND ($phone IS NULL OR $phone = '' OR u.phone = $phone)
+          AND ($paymentMethod IS NULL OR $paymentMethod = '' OR $paymentMethod IN u.paymentMethods)
         RETURN count(u)
     """)
     long countUsers(

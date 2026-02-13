@@ -19,7 +19,10 @@ public class Transaction {
     private String transactionId;
 
     private Double amount;
+    private String currency;          // NEW: "USD", "EUR", "GBP"
     private LocalDateTime timestamp;
     private String ip;
     private String deviceId;
+    private String status;            // NEW: "COMPLETED", "PENDING", "FAILED", "FLAGGED", "REVERSED"
+    private String paymentMethod;     // NEW: "Visa", "PayPal", etc. — stored as property on the node
 }

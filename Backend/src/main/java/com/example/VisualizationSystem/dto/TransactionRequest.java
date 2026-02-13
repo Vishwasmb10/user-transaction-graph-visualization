@@ -1,24 +1,23 @@
 package com.example.VisualizationSystem.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import lombok.Data;
+import lombok.*;
 
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Getter
+@Setter
 public class TransactionRequest {
 
-    @NotBlank
     private String transactionId;
-
-    @NotNull
     private Double amount;
-
-    @NotBlank
-    private String senderId;
-
-    @NotBlank
-    private String receiverId;
-
+    private String currency;          // NEW — defaults to "USD" if null
     private String ip;
     private String deviceId;
+    private String status;            // NEW — defaults to "PENDING" if null
+    private String paymentMethod;     // NEW — "Visa", "PayPal", etc.
+
+    private String senderId;
+    private String receiverId;
 }
