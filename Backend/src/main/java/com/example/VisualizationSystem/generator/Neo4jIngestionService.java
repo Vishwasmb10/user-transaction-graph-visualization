@@ -26,9 +26,9 @@ public class Neo4jIngestionService {
             "BANK_TRANSFER", "UPI", "PAYPAL", "CRYPTO"
     );
 
-    // ================================================================
-    //  PHASE 0 — CLEAN
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 0 — CLEAN DATABASE
+    // ════════════════════════════════════════════════════════════════
 
     public void cleanDatabase() {
         log.info("▸ Wiping database...");
@@ -50,17 +50,17 @@ public class Neo4jIngestionService {
         log.info("  ✓ Database cleaned");
     }
 
-    // ================================================================
-    //  PHASE 1 — SCHEMA
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 1 — CREATE SCHEMA
+    // ════════════════════════════════════════════════════════════════
 
     public void createSchema() {
         log.info("▸ Creating indexes and constraints...");
         try (Session session = driver.session()) {
             List<String> statements = List.of(
                     "CREATE CONSTRAINT user_id_unique  IF NOT EXISTS FOR (u:User)          REQUIRE u.userId IS UNIQUE",
-                    "CREATE CONSTRAINT txn_id_unique   IF NOT EXISTS FOR (t:Transaction)    REQUIRE t.transactionId IS UNIQUE",
-                    "CREATE CONSTRAINT pm_name_unique  IF NOT EXISTS FOR (p:PaymentMethod)  REQUIRE p.name IS UNIQUE",
+                    "CREATE CONSTRAINT txn_id_unique   IF NOT EXISTS FOR (t:Transaction)   REQUIRE t.transactionId IS UNIQUE",
+                    "CREATE CONSTRAINT pm_name_unique  IF NOT EXISTS FOR (p:PaymentMethod) REQUIRE p.name IS UNIQUE",
 
                     "CREATE INDEX user_email_idx       IF NOT EXISTS FOR (u:User)          ON (u.email)",
                     "CREATE INDEX user_phone_idx       IF NOT EXISTS FOR (u:User)          ON (u.phone)",
@@ -88,9 +88,9 @@ public class Neo4jIngestionService {
         log.info("  ✓ Schema ready");
     }
 
-    // ================================================================
-    //  PHASE 3c — CREATE PAYMENT METHOD HUB NODES
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 2 — CREATE PAYMENT METHOD NODES
+    // ════════════════════════════════════════════════════════════════
 
     public void createPaymentMethodNodes() {
         log.info("▸ Creating PaymentMethod hub nodes...");
@@ -106,9 +106,9 @@ public class Neo4jIngestionService {
         log.info("  ✓ {} PaymentMethod nodes created", PAYMENT_METHOD_TYPES.size());
     }
 
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
     //  PHASE 3a — INSERT USER NODES
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
 
     public void insertUsers(List<User> users) {
         log.info("▸ Inserting {} User nodes (batch={})...",
@@ -135,9 +135,9 @@ public class Neo4jIngestionService {
         log.info("  ✓ {} Users inserted", users.size());
     }
 
-    // ================================================================
-    //  PHASE 3b — INSERT TRANSACTION NODES (ENRICHED)
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 3b — INSERT TRANSACTION NODES
+    // ════════════════════════════════════════════════════════════════
 
     public void insertTransactions(List<Transaction> txns) {
         log.info("▸ Inserting {} Transaction nodes (batch={})...",
@@ -165,9 +165,9 @@ public class Neo4jIngestionService {
         log.info("  ✓ {} Transactions inserted", txns.size());
     }
 
-    // ================================================================
-    //  PHASE 4a — SENT / RECEIVED_BY
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 4a — CREATE SENT / RECEIVED_BY EDGES
+    // ════════════════════════════════════════════════════════════════
 
     public void createParticipationEdges(List<TransactionEdgeData> edges) {
         List<Map<String, Object>> edgeMaps = edges.stream()
@@ -186,7 +186,7 @@ public class Neo4jIngestionService {
                 MATCH (t:Transaction {transactionId: row.txnId})
                 CREATE (u)-[:SENT {amount: row.amount}]->(t)
                 """, edgeMaps, props.getRelationshipBatchSize());
-        log.info("  ✓ SENT edges created");
+        log.info("  ✓ {} SENT edges created", edgeMaps.size());
 
         log.info("▸ Creating RECEIVED_BY edges...");
         batchWrite("""
@@ -195,14 +195,19 @@ public class Neo4jIngestionService {
                 MATCH (u:User {userId: row.receiverId})
                 CREATE (t)-[:RECEIVED_BY {amount: row.amount}]->(u)
                 """, edgeMaps, props.getRelationshipBatchSize());
-        log.info("  ✓ RECEIVED_BY edges created");
+        log.info("  ✓ {} RECEIVED_BY edges created", edgeMaps.size());
     }
 
-    // ================================================================
-    //  PHASE 4b — TRANSFERRED_TO
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 4b — CREATE TRANSFERRED_TO EDGES
+    // ════════════════════════════════════════════════════════════════
 
     public void createTransferEdges(List<TransactionEdgeData> edges) {
+        if (!props.isCreateTransferEdges()) {
+            log.info("▸ Skipping TRANSFERRED_TO edges (disabled in config)");
+            return;
+        }
+
         log.info("▸ Creating TRANSFERRED_TO edges...");
 
         Map<String, Map<String, Object>> pairs = new LinkedHashMap<>();
@@ -233,39 +238,66 @@ public class Neo4jIngestionService {
         log.info("  ✓ {} TRANSFERRED_TO edges created", pairs.size());
     }
 
-    // ================================================================
-    //  PHASE 5a — SHARED USER ATTRIBUTE EDGES
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 5a — SHARED USER ATTRIBUTE EDGES (OPTIMIZED)
+    // ════════════════════════════════════════════════════════════════
 
     public void createSharedUserAttributeEdges() {
-        linkUsersByAttribute("email", "SAME_EMAIL");
-        linkUsersByAttribute("phone", "SAME_PHONE");
-        linkUsersByAttribute("address", "SAME_ADDRESS");
-        linkUsersToPaymentMethodHubs();
+        if (props.isCreateSameEmail()) {
+            linkUsersByAttribute("email", "SAME_EMAIL",
+                    props.getSameEmailSampleRate(),
+                    props.getMaxEmailCluster());
+        } else {
+            log.info("▸ Skipping SAME_EMAIL edges (disabled)");
+        }
+
+        if (props.isCreateSamePhone()) {
+            linkUsersByAttribute("phone", "SAME_PHONE",
+                    props.getSamePhoneSampleRate(),
+                    props.getMaxPhoneCluster());
+        } else {
+            log.info("▸ Skipping SAME_PHONE edges (disabled)");
+        }
+
+        if (props.isCreateSameAddress()) {
+            linkUsersByAttribute("address", "SAME_ADDRESS",
+                    props.getSameAddressSampleRate(),
+                    props.getMaxAddressCluster());
+        } else {
+            log.info("▸ Skipping SAME_ADDRESS edges (disabled)");
+        }
+
+        if (props.isCreateUsesPayment()) {
+            linkUsersToPaymentMethodHubs();
+        } else {
+            log.info("▸ Skipping USES_PAYMENT edges (disabled)");
+        }
     }
 
-    private void linkUsersByAttribute(String attr, String relType) {
-        log.info("▸ Detecting {} relationships (fully pairwise)...", relType);
+    private void linkUsersByAttribute(String attr, String relType, double sampleRate, int maxCluster) {
+        log.info("▸ Creating {} edges (sample={}%, maxCluster={})...",
+                relType, String.format("%.1f", sampleRate * 100), maxCluster);
 
-        String pairwiseCypher = String.format("""
+        String cypher = String.format("""
                 MATCH (u:User)
                 WHERE u.%1$s IS NOT NULL
                 WITH u.%1$s AS val, collect(u) AS nodes
-                WHERE size(nodes) > 1
+                WHERE size(nodes) > 1 AND size(nodes) <= %3$d
                 UNWIND range(0, size(nodes)-2) AS i
                 UNWIND range(i+1, size(nodes)-1) AS j
                 WITH nodes[i] AS a, nodes[j] AS b
+                WHERE rand() < %4$f
                 CREATE (a)-[:%2$s]->(b)
-                """, attr, relType);
+                """, attr, relType, maxCluster, sampleRate);
 
         try (Session s = driver.session()) {
-            var rs = s.run(pairwiseCypher).consume();
+            var rs = s.run(cypher).consume();
             log.info("  ✓ {} edges created for {}", rs.counters().relationshipsCreated(), relType);
         }
     }
 
     private void linkUsersToPaymentMethodHubs() {
-        log.info("▸ Creating USES_PAYMENT edges (hub-and-spoke)...");
+        log.info("▸ Creating USES_PAYMENT edges...");
 
         String cypher = """
                 MATCH (u:User)
@@ -281,38 +313,113 @@ public class Neo4jIngestionService {
         }
     }
 
-    // ================================================================
-    //  PHASE 5b — SHARED TRANSACTION ATTRIBUTE EDGES
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  PHASE 5b — SHARED TRANSACTION ATTRIBUTE EDGES (OPTIMIZED)
+    // ════════════════════════════════════════════════════════════════
 
     public void createSharedTransactionAttributeEdges() {
-        linkTransactionsByAttribute("ip", "SAME_IP");
-        linkTransactionsByAttribute("deviceId", "SAME_DEVICE");
+        if (props.isCreateSameIp()) {
+            linkTransactionsByAttribute("ip", "SAME_IP",
+                    props.getSameIpSampleRate(),
+                    props.getMaxIpCluster());
+        } else {
+            log.info("▸ Skipping SAME_IP edges (disabled)");
+        }
+
+        if (props.isCreateSameDevice()) {
+            linkTransactionsByAttribute("deviceId", "SAME_DEVICE",
+                    props.getSameDeviceSampleRate(),
+                    props.getMaxDeviceCluster());
+        } else {
+            log.info("▸ Skipping SAME_DEVICE edges (disabled)");
+        }
     }
 
-    private void linkTransactionsByAttribute(String attr, String relType) {
-        log.info("▸ Detecting {} relationships (fully pairwise)...", relType);
+    private void linkTransactionsByAttribute(String attr, String relType, double sampleRate, int maxCluster) {
+        log.info("▸ Creating {} edges (sample={}%, maxCluster={})...",
+                relType, String.format("%.1f", sampleRate * 100), maxCluster);
 
-        String pairwiseCypher = String.format("""
+        String cypher = String.format("""
                 MATCH (t:Transaction)
                 WHERE t.%1$s IS NOT NULL
                 WITH t.%1$s AS val, collect(t) AS nodes
-                WHERE size(nodes) > 1
+                WHERE size(nodes) > 1 AND size(nodes) <= %3$d
                 UNWIND range(0, size(nodes)-2) AS i
                 UNWIND range(i+1, size(nodes)-1) AS j
                 WITH nodes[i] AS a, nodes[j] AS b
+                WHERE rand() < %4$f
                 CREATE (a)-[:%2$s]->(b)
-                """, attr, relType);
+                """, attr, relType, maxCluster, sampleRate);
 
         try (Session s = driver.session()) {
-            var rs = s.run(pairwiseCypher).consume();
+            var rs = s.run(cypher).consume();
             log.info("  ✓ {} edges created for {}", rs.counters().relationshipsCreated(), relType);
         }
     }
 
-    // ================================================================
-    //  HELPERS
-    // ================================================================
+    // ════════════════════════════════════════════════════════════════
+    //  STATISTICS
+    // ════════════════════════════════════════════════════════════════
+
+    public void logDatabaseStats() {
+        log.info("═══════════════════════════════════════════════════════════");
+        log.info("                   DATABASE STATISTICS                      ");
+        log.info("═══════════════════════════════════════════════════════════");
+
+        try (Session session = driver.session()) {
+            // Node counts
+            var nodeResult = session.run("""
+                    MATCH (n)
+                    WITH labels(n) AS lbls, count(*) AS cnt
+                    UNWIND lbls AS label
+                    RETURN label, sum(cnt) AS count
+                    ORDER BY count DESC
+                    """);
+
+            log.info("NODES:");
+            long totalNodes = 0;
+            while (nodeResult.hasNext()) {
+                var record = nodeResult.next();
+                long count = record.get("count").asLong();
+                totalNodes += count;
+                log.info("  {:20} {:>10,}", record.get("label").asString(), count);
+            }
+            log.info("  {:20} {:>10,}", "TOTAL", totalNodes);
+
+            // Relationship counts
+            var relResult = session.run("""
+                    MATCH ()-[r]->()
+                    RETURN type(r) AS type, count(r) AS count
+                    ORDER BY count DESC
+                    """);
+
+            log.info("\nRELATIONSHIPS:");
+            long totalRels = 0;
+            while (relResult.hasNext()) {
+                var record = relResult.next();
+                long count = record.get("count").asLong();
+                totalRels += count;
+                log.info("  {:20} {:>10,}", record.get("type").asString(), count);
+            }
+            log.info("  {:20} {:>10,}", "TOTAL", totalRels);
+
+            // Check against limit
+            long limit = 400_000;
+            log.info("\nAURA FREE TIER STATUS:");
+            if (totalRels > limit) {
+                log.warn("  ⚠️  OVER LIMIT! {}/{} ({:.1f}%)",
+                        totalRels, limit, totalRels * 100.0 / limit);
+            } else {
+                log.info("  ✅ Within limit: {}/{} ({:.1f}%) | {} remaining",
+                        totalRels, limit, totalRels * 100.0 / limit, limit - totalRels);
+            }
+        }
+        log.info("═══════════════════════════════════════════════════════════");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  HELPER METHODS
+    // ════════════════════════════════════════════════════════════════
 
     private void batchWrite(String cypher,
                             List<Map<String, Object>> data,

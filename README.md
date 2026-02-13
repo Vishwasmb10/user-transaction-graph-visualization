@@ -128,7 +128,7 @@ The system follows a decoupled architecture, ensuring the backend handles the he
 
   
 
-2.  Run the following command:
+2.  In the root directory of the project, run the following command:
 
   
 
