@@ -230,7 +230,7 @@ The system follows a decoupled architecture, ensuring the backend handles the he
 
   
 
-### Data Pipeline
+### Data Pipeline (Accesseible Via Frontend as Well)
 
   
 
@@ -242,7 +242,7 @@ The system follows a decoupled architecture, ensuring the backend handles the he
 
   
 
-* `DELETE /api/v1/pipeline/ - Purges the entire graph.
+* `DELETE /api/v1/pipeline/` - Purges the entire graph.
 
   
 
