@@ -21,14 +21,13 @@ public class Neo4jIngestionService {
     private final Driver driver;
     private final PipelineProperties props;
 
-    // ✅ Centralized list — used by DataGeneratorService too
     public static final List<String> PAYMENT_METHOD_TYPES = List.of(
             "CREDIT_CARD", "DEBIT_CARD", "CASH",
             "BANK_TRANSFER", "UPI", "PAYPAL", "CRYPTO"
     );
 
     // ================================================================
-    //  PHASE 0 — CLEAN  (unchanged)
+    //  PHASE 0 — CLEAN
     // ================================================================
 
     public void cleanDatabase() {
@@ -59,20 +58,20 @@ public class Neo4jIngestionService {
         log.info("▸ Creating indexes and constraints...");
         try (Session session = driver.session()) {
             List<String> statements = List.of(
-                    "CREATE CONSTRAINT user_id_unique  IF NOT EXISTS FOR (u:User)        REQUIRE u.userId IS UNIQUE",
-                    "CREATE CONSTRAINT txn_id_unique   IF NOT EXISTS FOR (t:Transaction)  REQUIRE t.transactionId IS UNIQUE",
+                    "CREATE CONSTRAINT user_id_unique  IF NOT EXISTS FOR (u:User)          REQUIRE u.userId IS UNIQUE",
+                    "CREATE CONSTRAINT txn_id_unique   IF NOT EXISTS FOR (t:Transaction)    REQUIRE t.transactionId IS UNIQUE",
+                    "CREATE CONSTRAINT pm_name_unique  IF NOT EXISTS FOR (p:PaymentMethod)  REQUIRE p.name IS UNIQUE",
 
-                    // ✅ NEW — PaymentMethod hub node constraint
-                    "CREATE CONSTRAINT pm_name_unique  IF NOT EXISTS FOR (p:PaymentMethod) REQUIRE p.name IS UNIQUE",
+                    "CREATE INDEX user_email_idx       IF NOT EXISTS FOR (u:User)          ON (u.email)",
+                    "CREATE INDEX user_phone_idx       IF NOT EXISTS FOR (u:User)          ON (u.phone)",
+                    "CREATE INDEX user_address_idx     IF NOT EXISTS FOR (u:User)          ON (u.address)",
 
-                    "CREATE INDEX user_email_idx   IF NOT EXISTS FOR (u:User)        ON (u.email)",
-                    "CREATE INDEX user_phone_idx   IF NOT EXISTS FOR (u:User)        ON (u.phone)",
-                    "CREATE INDEX user_address_idx IF NOT EXISTS FOR (u:User)        ON (u.address)",
-                    // ✅ REMOVED: user_payment_idx on scalar paymentMethod
-
-                    "CREATE INDEX txn_ip_idx        IF NOT EXISTS FOR (t:Transaction) ON (t.ip)",
-                    "CREATE INDEX txn_device_idx    IF NOT EXISTS FOR (t:Transaction) ON (t.deviceId)",
-                    "CREATE INDEX txn_timestamp_idx IF NOT EXISTS FOR (t:Transaction) ON (t.timestamp)"
+                    "CREATE INDEX txn_ip_idx           IF NOT EXISTS FOR (t:Transaction)   ON (t.ip)",
+                    "CREATE INDEX txn_device_idx       IF NOT EXISTS FOR (t:Transaction)   ON (t.deviceId)",
+                    "CREATE INDEX txn_timestamp_idx    IF NOT EXISTS FOR (t:Transaction)   ON (t.timestamp)",
+                    "CREATE INDEX txn_status_idx       IF NOT EXISTS FOR (t:Transaction)   ON (t.status)",
+                    "CREATE INDEX txn_pm_idx           IF NOT EXISTS FOR (t:Transaction)   ON (t.paymentMethod)",
+                    "CREATE INDEX txn_currency_idx     IF NOT EXISTS FOR (t:Transaction)   ON (t.currency)"
             );
 
             for (String stmt : statements) {
@@ -90,7 +89,7 @@ public class Neo4jIngestionService {
     }
 
     // ================================================================
-    //  ✅ NEW — PHASE 3c — CREATE PAYMENT METHOD HUB NODES
+    //  PHASE 3c — CREATE PAYMENT METHOD HUB NODES
     // ================================================================
 
     public void createPaymentMethodNodes() {
@@ -115,7 +114,6 @@ public class Neo4jIngestionService {
         log.info("▸ Inserting {} User nodes (batch={})...",
                 users.size(), props.getNodeBatchSize());
 
-        // ✅ paymentMethods stored as array property for filtering
         String cypher = """
                 UNWIND $batch AS row
                 CREATE (u:User {
@@ -138,7 +136,7 @@ public class Neo4jIngestionService {
     }
 
     // ================================================================
-    //  PHASE 3b — INSERT TRANSACTION NODES  (unchanged)
+    //  PHASE 3b — INSERT TRANSACTION NODES (ENRICHED)
     // ================================================================
 
     public void insertTransactions(List<Transaction> txns) {
@@ -148,11 +146,14 @@ public class Neo4jIngestionService {
         String cypher = """
                 UNWIND $batch AS row
                 CREATE (t:Transaction {
-                    transactionId: row.transactionId,
-                    amount:        row.amount,
-                    timestamp:     row.timestamp,
-                    ip:            row.ip,
-                    deviceId:      row.deviceId
+                    transactionId:  row.transactionId,
+                    amount:         row.amount,
+                    currency:       row.currency,
+                    timestamp:      row.timestamp,
+                    ip:             row.ip,
+                    deviceId:       row.deviceId,
+                    status:         row.status,
+                    paymentMethod:  row.paymentMethod
                 })
                 """;
 
@@ -165,7 +166,7 @@ public class Neo4jIngestionService {
     }
 
     // ================================================================
-    //  PHASE 4a — SENT / RECEIVED_BY  (unchanged)
+    //  PHASE 4a — SENT / RECEIVED_BY
     // ================================================================
 
     public void createParticipationEdges(List<TransactionEdgeData> edges) {
@@ -198,7 +199,7 @@ public class Neo4jIngestionService {
     }
 
     // ================================================================
-    //  PHASE 4b — TRANSFERRED_TO  (unchanged)
+    //  PHASE 4b — TRANSFERRED_TO
     // ================================================================
 
     public void createTransferEdges(List<TransactionEdgeData> edges) {
@@ -237,18 +238,12 @@ public class Neo4jIngestionService {
     // ================================================================
 
     public void createSharedUserAttributeEdges() {
-        // Scalar attributes — pairwise (small clusters, same as before)
         linkUsersByAttribute("email", "SAME_EMAIL");
         linkUsersByAttribute("phone", "SAME_PHONE");
         linkUsersByAttribute("address", "SAME_ADDRESS");
-
-        // ✅ CHANGED: hub-and-spoke instead of pairwise
         linkUsersToPaymentMethodHubs();
     }
 
-    /**
-     * Scalar attribute pairwise linking (unchanged)
-     */
     private void linkUsersByAttribute(String attr, String relType) {
         log.info("▸ Detecting {} relationships (fully pairwise)...", relType);
 
@@ -269,12 +264,6 @@ public class Neo4jIngestionService {
         }
     }
 
-    /**
-     * ✅ NEW — Hub-and-spoke: User -[:USES_PAYMENT]-> PaymentMethod
-     *
-     * O(n) edge creation instead of O(n²).
-     * 5,000 users × ~2 methods each = ~10,000 edges.  Done in seconds.
-     */
     private void linkUsersToPaymentMethodHubs() {
         log.info("▸ Creating USES_PAYMENT edges (hub-and-spoke)...");
 
@@ -293,7 +282,7 @@ public class Neo4jIngestionService {
     }
 
     // ================================================================
-    //  PHASE 5b — SHARED TRANSACTION ATTRIBUTE EDGES  (unchanged)
+    //  PHASE 5b — SHARED TRANSACTION ATTRIBUTE EDGES
     // ================================================================
 
     public void createSharedTransactionAttributeEdges() {
@@ -346,7 +335,6 @@ public class Neo4jIngestionService {
         }
     }
 
-    // ✅ CHANGED
     private Map<String, Object> userToMap(User u) {
         Map<String, Object> map = new HashMap<>();
         map.put("userId", u.getUserId());
@@ -354,7 +342,7 @@ public class Neo4jIngestionService {
         map.put("email", u.getEmail());
         map.put("phone", u.getPhone());
         map.put("address", u.getAddress());
-        map.put("paymentMethods", u.getPaymentMethods());   // ✅ List<String>
+        map.put("paymentMethods", u.getPaymentMethods());
         map.put("createdAt", u.getCreatedAt());
         return map;
     }
@@ -363,9 +351,12 @@ public class Neo4jIngestionService {
         Map<String, Object> map = new HashMap<>();
         map.put("transactionId", t.getTransactionId());
         map.put("amount", t.getAmount());
+        map.put("currency", t.getCurrency());
         map.put("timestamp", t.getTimestamp());
         map.put("ip", t.getIp());
         map.put("deviceId", t.getDeviceId());
+        map.put("status", t.getStatus());
+        map.put("paymentMethod", t.getPaymentMethod());
         return map;
     }
 }

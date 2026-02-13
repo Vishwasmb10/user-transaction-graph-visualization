@@ -11,8 +11,8 @@ import java.time.Duration;
 import java.time.Instant;
 
 @Slf4j
-//@Component
-//@Order(1)
+@Component
+@Order(1)
 @RequiredArgsConstructor
 public class GraphPipelineOrchestrator implements CommandLineRunner {
 

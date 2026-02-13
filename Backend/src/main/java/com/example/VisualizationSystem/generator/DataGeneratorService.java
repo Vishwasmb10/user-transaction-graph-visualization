@@ -32,10 +32,26 @@ public class DataGeneratorService {
     @Getter
     private List<TransactionEdgeData> transactionEdges;
 
-    // ✅ NEW — fixed pool of payment method TYPES (not random credit card numbers)
+    // Fixed pools
     private static final List<String> PAYMENT_METHOD_TYPES = List.of(
             "CREDIT_CARD", "DEBIT_CARD", "CASH",
             "BANK_TRANSFER", "UPI", "PAYPAL", "CRYPTO"
+    );
+
+    private static final List<String> CURRENCIES = List.of(
+            "USD", "USD", "USD", "USD",   // weighted toward USD
+            "EUR", "EUR",
+            "GBP",
+            "INR"
+    );
+
+    private static final List<String> STATUSES = List.of(
+            "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED",  // 50%
+            "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED",
+            "PENDING", "PENDING",                                              // 10%
+            "FAILED",                                                          // 5%
+            "FLAGGED",                                                         // 5%
+            "REVERSED"                                                         // 5%
     );
 
     public void generate() {
@@ -52,9 +68,6 @@ public class DataGeneratorService {
                 () -> faker.phoneNumber().subscriberNumber(10));
         List<String> addressPool = buildPool(props.getAddressPoolSize(),
                 () -> faker.address().streetAddress());
-
-        // ✅ REMOVED: paymentPool from faker — we use the fixed PAYMENT_METHOD_TYPES list
-
         List<String> ipPool      = buildPool(props.getIpPoolSize(),
                 () -> faker.internet().ipV4Address());
         List<String> devicePool  = buildPool(props.getDevicePoolSize(),
@@ -65,9 +78,7 @@ public class DataGeneratorService {
         LocalDateTime now = LocalDateTime.now();
 
         for (int i = 0; i < props.getUserCount(); i++) {
-
-            // ✅ Pick 1–3 random payment methods per user (realistic multi-method)
-            int methodCount = 1 + rng.nextInt(3);  // 1, 2, or 3
+            int methodCount = 1 + rng.nextInt(3);
             List<String> methods = pickMultiple(PAYMENT_METHOD_TYPES, methodCount, rng);
 
             users.add(User.builder()
@@ -76,14 +87,14 @@ public class DataGeneratorService {
                     .email(pick(emailPool, rng))
                     .phone(pick(phonePool, rng))
                     .address(pick(addressPool, rng))
-                    .paymentMethods(methods)               // ✅ CHANGED: List<String>
+                    .paymentMethods(methods)
                     .createdAt(now.minusDays(rng.nextInt(365)))
                     .build());
         }
         log.info("  ✓ {} users generated", users.size());
 
         // ── Generate Transactions + edge metadata ──────────────
-        transactions  = new ArrayList<>(props.getTransactionCount());
+        transactions     = new ArrayList<>(props.getTransactionCount());
         transactionEdges = new ArrayList<>(props.getTransactionCount());
 
         for (int i = 0; i < props.getTransactionCount(); i++) {
@@ -93,14 +104,30 @@ public class DataGeneratorService {
                 receiver = users.get(rng.nextInt(users.size()));
             }
 
+            // Pick a payment method the sender actually has
+            String txPaymentMethod = pick(sender.getPaymentMethods(), rng);
+
+            // High-value transactions are more likely to be flagged
+            double amount = Math.round(rng.nextDouble() * 50_000.0 * 100.0) / 100.0;
+            String status = pick(STATUSES, rng);
+            if (amount > 10_000 && rng.nextDouble() < 0.3) {
+                status = "FLAGGED";
+            }
+            if (amount > 25_000 && rng.nextDouble() < 0.15) {
+                status = "FAILED";
+            }
+
             Transaction txn = Transaction.builder()
                     .transactionId("TX-" + UUID.randomUUID())
-                    .amount(Math.round(rng.nextDouble() * 50_000.0 * 100.0) / 100.0)
+                    .amount(amount)
+                    .currency(pick(CURRENCIES, rng))
                     .timestamp(now.minus(
                             ThreadLocalRandom.current().nextLong(365 * 24 * 60),
                             ChronoUnit.MINUTES))
                     .ip(pick(ipPool, rng))
                     .deviceId(pick(devicePool, rng))
+                    .status(status)
+                    .paymentMethod(txPaymentMethod)
                     .build();
 
             transactions.add(txn);
@@ -110,7 +137,20 @@ public class DataGeneratorService {
                     .transaction(txn)
                     .build());
         }
+
+        // Log distribution stats
+        Map<String, Long> statusCounts = new HashMap<>();
+        Map<String, Long> currencyCounts = new HashMap<>();
+        Map<String, Long> pmCounts = new HashMap<>();
+        for (Transaction t : transactions) {
+            statusCounts.merge(t.getStatus(), 1L, Long::sum);
+            currencyCounts.merge(t.getCurrency(), 1L, Long::sum);
+            pmCounts.merge(t.getPaymentMethod(), 1L, Long::sum);
+        }
         log.info("  ✓ {} transactions generated", transactions.size());
+        log.info("    Status distribution:  {}", statusCounts);
+        log.info("    Currency distribution: {}", currencyCounts);
+        log.info("    Payment distribution:  {}", pmCounts);
     }
 
     // ── Helpers ────────────────────────────────────────────────
@@ -127,7 +167,6 @@ public class DataGeneratorService {
         return pool.get(rng.nextInt(pool.size()));
     }
 
-    // ✅ NEW — pick `count` unique random elements from a list
     private static <T> List<T> pickMultiple(List<T> pool, int count, Random rng) {
         List<T> shuffled = new ArrayList<>(pool);
         Collections.shuffle(shuffled, rng);
