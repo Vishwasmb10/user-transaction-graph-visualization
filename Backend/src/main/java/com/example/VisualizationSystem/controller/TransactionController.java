@@ -23,7 +23,7 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<PageResponse<Transaction>> list(
-            @RequestParam(required = false) String transactionId,
+            @RequestParam(required = false) String search,
             @RequestParam(required = false) String ip,
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) Double minAmount,
@@ -35,7 +35,7 @@ public class TransactionController {
     ) {
         return ResponseEntity.ok(
                 transactionService.getTransactionsPaged(
-                        blankToNull(transactionId),
+                        blankToNull(search),
                         blankToNull(ip),
                         blankToNull(deviceId),
                         minAmount,
