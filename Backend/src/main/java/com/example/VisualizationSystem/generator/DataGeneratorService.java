@@ -180,8 +180,8 @@ public class DataGeneratorService {
 
         // ---------- Users (8 total, shared attributes) ----------
         users.add(new User("U1","Alice","alice@mail.com","9991","CityA", List.of("CREDIT_CARD"),LocalDateTime.now()));
-        users.add(new User("U2","Bob","alice@mail.com","9992","CityB", List.of("UPI,PayPal"),LocalDateTime.now())); // shared email
-        users.add(new User("U3","Carol","carol@mail.com","9991","CityC", List.of("CREDIT_CARD,DEBIT_CARD"),LocalDateTime.now())); // shared phone
+        users.add(new User("U2","Bob","alice@mail.com","9992","CityB", List.of("UPI","PayPal"),LocalDateTime.now())); // shared email
+        users.add(new User("U3","Carol","carol@mail.com","9991","CityC", List.of("CREDIT_CARD","DEBIT_CARD"),LocalDateTime.now())); // shared phone
         users.add(new User("U4","David","david@mail.com","9994","CityA", List.of("CASH"),LocalDateTime.now())); // shared address
         users.add(new User("U5","Eve","eve@mail.com","9995","CityE", List.of("DEBIT_CARD"),LocalDateTime.now())); // shared payment
         users.add(new User("U6","Frank","frank@mail.com","9996","CityF", List.of("UPI"),LocalDateTime.now()));
